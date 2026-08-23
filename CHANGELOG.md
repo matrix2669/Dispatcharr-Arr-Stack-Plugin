@@ -10,6 +10,7 @@ The format follows Keep a Changelog principles where practical.
 
 ### Changed
 
+- Renamed the Mustarrd dependency branch to `feature/dispatcharr-arr-connector-integration` and documented that its external VOD endpoint and lifecycle changes are required upstream support for Arr Stack Connector, not functionality currently present in unmodified upstream Mustarrd.
 - Converted the historical `v0.1.0` through `v0.1.16` version branches to annotated tags at their exact original commits, verified them against the legacy registry metadata, and removed the obsolete branches.
 - Removed the superseded `docs/bootstrap-release-sync` branch after confirming its durable guidance is present or superseded on `main`.
 - Corrected the published `v0.2.0` GitHub Release notes from literal escaped line breaks to properly rendered Markdown without changing the release artifacts.

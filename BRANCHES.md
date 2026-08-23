@@ -32,6 +32,7 @@ This ledger records why every current branch exists. GitHub remains authoritativ
 - Base: current `main`.
 - Current plugin version: `0.2.0`.
 - Current state: synchronized to the completed stable source promoted to `main` and approved for release.
+- Current documentation scope: track the renamed Mustarrd dependency branch and the upstream support required by Arr Stack Connector.
 - Intended target: `main` after versioned testing is complete.
 - Validation: 28 unit tests pass; all Python modules compile; `plugin.json` parses; version and identity assertions agree; the beta installed successfully on Dispatcharr; and the clean release ZIP is required to contain only the top-level `arr-stack-connector/` directory.
 - Last verified at: `2026-08-22`.

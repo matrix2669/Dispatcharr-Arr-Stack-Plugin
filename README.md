@@ -40,10 +40,12 @@ The proxy URL contains a unique VOD session ID in the path. This intentionally b
 
 - A current Dispatcharr build with plugin support.
 - `ffprobe` available at `/usr/bin/ffprobe` by default. The path is configurable.
-- Mustarrd with `POST /api/vod/external/download` support.
+- Mustarrd with `POST /api/vod/external/download` support. This is currently a required fork dependency tracked on `matrix2669/mustarrd:feature/dispatcharr-arr-connector-integration`; it is not yet available in unmodified upstream Mustarrd.
 - A dedicated local Mustarrd user is recommended for the plugin.
 - Mustarrd must be able to reach the configured **Dispatcharr URL Seen by Mustarrd**.
 - The Mustarrd completed folder must be mounted into Sonarr/Radarr. Configure **Completed Directory Seen by Sonarr/Radarr** to the path those applications see.
+
+See `DEPENDENCIES.md` for the exact Mustarrd contract, known-good fork revision, and upstream-readiness gate.
 
 ## Install
 

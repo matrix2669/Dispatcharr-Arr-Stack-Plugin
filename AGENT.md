@@ -109,6 +109,8 @@ Baseline evidence: Dispatcharr `v0.29.0` at `d9abece081c9edf637d4c3fdd41443eb993
 
 Mustarrd integration was refreshed against `matrix2669/mustarrd:dev` at `7c56b83879f76faff8f303c139063a1f51a75431` on 2026-08-22. The external VOD endpoint still accepts the account, media ID, title, absolute source URL, relative output path, and duration used here; authentication still uses session cookies plus CSRF; active deletion still returns `cancelled` before finished-history deletion; and retry still accepts failed or cancelled jobs.
 
+This endpoint and its lifecycle support are Mustarrd upstream changes required by this plugin. They are tracked on `matrix2669/mustarrd:feature/dispatcharr-arr-connector-integration` (required implementation `0ae5d14`, documented branch head `55a787f`) and are absent from current upstream `razzamatazm/mustarrd:main` at `2b7ea998`. The branch must be rebuilt cleanly from current upstream without its unrelated historical `{tmdb}` ancestor before submission. Until equivalent support is merged upstream, do not claim that Arr Stack Connector works with unmodified upstream Mustarrd. Keep `DEPENDENCIES.md` current whenever this contract or upstream status changes.
+
 Record the Dispatcharr version or tag, exact commit, repository URL, review date, and relevant findings. Inspect at minimum:
 
 - plugin discovery and `plugin.json` field/action schema;
@@ -155,7 +157,7 @@ Behavioral or compatibility changes require applicable live validation:
 
 ## Future-agent checklist
 
-- [ ] Read `AGENT.md`, `DECISIONS.md`, `BRANCHES.md`, `CHANGELOG.md`, and `RELEASE.md`
+- [ ] Read `AGENT.md`, `DECISIONS.md`, `DEPENDENCIES.md`, `BRANCHES.md`, `CHANGELOG.md`, and `RELEASE.md`
 - [ ] Review all relevant project conversations, repository history, and related project contracts
 - [ ] Confirm branch base, intended target, next version, and registry channel
 - [ ] Refresh the `BRANCHES.md` record before substantive work

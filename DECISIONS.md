@@ -995,3 +995,41 @@ Credential changes replace and close the shared client. Authentication failures 
 - Commits `bff2746`, `82b9dd7`, and `4bad78d`
 
 ---
+
+# ADR-028: Treat the Mustarrd handoff implementation as a required upstream dependency
+
+## Status
+
+Accepted; upstream contribution pending
+
+## Date
+
+2026-08-23
+
+## Decision
+
+Track the Mustarrd API and download-lifecycle behavior used by Arr Stack Connector on `matrix2669/mustarrd:feature/dispatcharr-arr-connector-integration`. Treat those changes as required upstream Mustarrd support for this plugin, not as an optional generic VOD experiment.
+
+Until the required behavior is accepted into `razzamatazm/mustarrd`, production compatibility depends on the maintained Mustarrd fork's `dev` branch or another verified descendant of implementation commit `0ae5d14`. Do not claim compatibility with unmodified upstream Mustarrd.
+
+## Reason
+
+The plugin delegates the actual download to a dedicated Mustarrd endpoint and depends on its authentication, path containment, VOD queue, retry, cancellation, history, and completion semantics. Current upstream Mustarrd at `2b7ea998` does not contain that endpoint, even though the implementation is already present in the fork's production `dev` ancestry.
+
+## Alternatives Considered
+
+- Treat the endpoint as permanent fork-only behavior. Rejected because the plugin should be usable with upstream Mustarrd once the focused dependency is accepted.
+- Claim support based on fork production testing. Rejected because fork validation does not prove upstream contains the required behavior.
+- Submit the existing branch directly. Rejected because it is behind current upstream and carries an unrelated historical `{tmdb}` ancestor.
+
+## Consequences
+
+Rebuild the required implementation cleanly from current upstream, run both projects' complete validation gates, submit a focused upstream PR, and track its exact status in `DEPENDENCIES.md`. A closed, superseded, or partially reimplemented PR does not satisfy the dependency without a change-by-change verification.
+
+## Provenance
+
+- Mustarrd branch: `feature/dispatcharr-arr-connector-integration`
+- Required Mustarrd implementation: `0ae5d147e76878e60a897d7cfdbd65abb3068ada`
+- Dependency record: `DEPENDENCIES.md`
+
+---

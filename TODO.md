@@ -1,5 +1,13 @@
 # TODO.md
 
+## Required Mustarrd Upstream Dependency
+
+- Rebuild Mustarrd implementation commit `0ae5d14` from current upstream `main` on `feature/dispatcharr-arr-connector-integration`, excluding its unrelated historical `{tmdb}` ancestor.
+- Revalidate the external endpoint, local-user authentication, safe relative paths, native Dispatcharr proxy URL, retry/resume behavior, cancellation, history deletion, and completion paths against the current plugin.
+- Run the complete Mustarrd backend/frontend suites and the Arr Stack Connector automated and live integration gates.
+- Submit a focused upstream Mustarrd PR and track all maintainer feedback in `DEPENDENCIES.md`.
+- Do not mark compatibility with unmodified upstream Mustarrd complete until the PR is merged or equivalent upstream support is verified.
+
 ## Arr Stack Automation Roadmap
 
 ### Background VOD Stream Discovery and Cache
