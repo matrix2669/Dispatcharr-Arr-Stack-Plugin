@@ -14,7 +14,7 @@ This ledger records why every current branch exists. GitHub remains authoritativ
 | Branch | Type | Status | Base | Target | Purpose |
 |---|---|---|---|---|---|
 | `main` | long-lived | active | initial project history | stable source | Production-ready plugin source and explicitly approved GitHub Releases. |
-| `dev` | long-lived | active | `main` | `main` | Integrate and validate the next plugin version; synchronized to stable Arr Stack Connector `0.2.0`. |
+| `dev` | long-lived | active | `main` | `main` | Integrate and validate the next plugin version; synchronized to current `main` at stable Arr Stack Connector `0.2.0`. |
 
 ## Active branch records
 
@@ -24,15 +24,16 @@ This ledger records why every current branch exists. GitHub remains authoritativ
 - Current plugin version: `0.2.0`.
 - Current distribution: approved for normal GitHub Release `v0.2.0` and focused publication through the registry `main` channel.
 - Promotion source: the live-tested `v0.2.0-beta.1` state, with only version and release metadata changed for the stable build.
-- Last verified at: `2026-08-22`.
+- Current governance: the mandatory workspace standards drift and reconciliation gate is recorded at the applied workspace revision.
+- Last verified at: `2026-08-24`.
 
 ### `dev`
 
 - Purpose: integrate and validate the next plugin version before promotion to `main`.
 - Base: current `main`.
 - Current plugin version: `0.2.0`.
-- Current state: synchronized to the completed stable source promoted to `main` and approved for release.
-- Current documentation scope: track the renamed Mustarrd dependency branch and the upstream support required by Arr Stack Connector.
+- Current state: synchronized to the completed stable source on `main`, including current dependency and workspace-governance documentation.
+- Current documentation scope: track the renamed Mustarrd dependency branch, the upstream support required by Arr Stack Connector, and mandatory workspace standards reconciliation.
 - Intended target: `main` after versioned testing is complete.
 - Validation: 28 unit tests pass; all Python modules compile; `plugin.json` parses; version and identity assertions agree; the beta installed successfully on Dispatcharr; and the clean release ZIP is required to contain only the top-level `arr-stack-connector/` directory.
-- Last verified at: `2026-08-22`.
+- Last verified at: `2026-08-24`.
