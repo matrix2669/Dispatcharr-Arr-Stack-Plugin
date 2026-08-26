@@ -15,6 +15,7 @@ This ledger records why every current branch exists. GitHub remains authoritativ
 |---|---|---|---|---|---|
 | `main` | long-lived | active | initial project history | stable source | Production-ready plugin source and explicitly approved GitHub Releases. |
 | `dev` | long-lived | active | `main` | `main` | Integrate and validate the next plugin version; synchronized to current `main` at stable Arr Stack Connector `0.2.0`. |
+| `feature/session-completion-remote-checkpoint` | governance | active | `dev` at `fae497e` | `dev` | Reconcile the mandatory session-end GitHub checkpoint rule without changing plugin behavior or distribution. |
 
 ## Active branch records
 
@@ -37,3 +38,13 @@ This ledger records why every current branch exists. GitHub remains authoritativ
 - Intended target: `main` after versioned testing is complete.
 - Validation: 28 unit tests pass; all Python modules compile; `plugin.json` parses; version and identity assertions agree; the beta installed successfully on Dispatcharr; and the clean release ZIP is required to contain only the top-level `arr-stack-connector/` directory.
 - Last verified at: `2026-08-24`.
+
+### `feature/session-completion-remote-checkpoint`
+
+- Purpose: inherit the workspace rule that every session checkpoints all in-scope work on its owning GitHub branch while keeping integration and publication separate.
+- Base: `dev` at `fae497e3b23f5c7a36b456fb46721bffca0699ac`.
+- Intended target: `dev` after review.
+- Scope: `AGENT.md`, `WORKSPACE-STANDARDS.yaml`, and this branch record.
+- Exclusions: plugin runtime, rename or dependency contracts, version, tag, registry, Release, ZIP, or deployment changes.
+- Validation: workspace standards validation and `git diff --check` pass; no plugin, rename, dependency, version, registry, release, or deployment behavior changed.
+- Started: `2026-08-26`.
