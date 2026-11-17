@@ -24,7 +24,7 @@ Also verify:
 - `VERSION`, `Plugin.version`, and `plugin.json` agree;
 - the exact tag archive exposes `arr-stack-connector/plugin.json` beneath the stable source directory and Dispatcharr uses the expected host-selected key (0.33 `arr_stack_connector`; fresh 0.34 `arr-stack-connector`; existing managed updates retain their key);
 - installation and update preserve saved settings, API key, state files, and the managed service lifecycle;
-- Dispatcharr loads the plugin under the existing normalized key;
+- Dispatcharr loads the plugin under the host-selected key, preserving an existing managed key;
 - Sonarr and Radarr validation, interactive search, grab, queue, history, retry, and deletion still work;
 - Mustarrd receives a Dispatcharr-native VOD proxy URL and reports completion through the existing SAB-compatible layout.
 

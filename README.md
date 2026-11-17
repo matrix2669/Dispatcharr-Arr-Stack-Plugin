@@ -2,7 +2,7 @@
 
 A Dispatcharr plugin that exposes **raw Xtream VOD provider variants** to Sonarr and Radarr as a Newznab indexer and emulates the subset of SABnzbd used by Servarr. Selected releases are handed to Mustarrd for the actual download/remux lifecycle.
 
-This project was formerly named **Dispatcharr VOD Newznab Plugin**. The new registry slug and source archive directory are `arr-stack-connector`; Dispatcharr installs it under the normalized key and directory `arr_stack_connector`.
+This project was formerly named **Dispatcharr VOD Newznab Plugin**. The new registry slug and source archive directory are `arr-stack-connector`; Dispatcharr 0.33 installs it as `arr_stack_connector`; fresh 0.34 installs preserve `arr-stack-connector`, and managed updates retain the existing key.
 
 ## Architecture
 
@@ -49,10 +49,11 @@ See `DEPENDENCIES.md` for the exact Mustarrd contract, known-good fork revision,
 
 ## Install
 
-Install from the Matrix2669 Dispatcharr plugin registry. Dispatcharr normalizes the installed plugin key to underscores, so the installed directory is:
+Install from the Matrix2669 Dispatcharr plugin registry. The installed directory is host-selected:
 
 ```text
-/data/plugins/arr_stack_connector/
+/data/plugins/arr_stack_connector/  # 0.33 and existing underscore-key updates
+/data/plugins/arr-stack-connector/  # fresh 0.34 installs
 ```
 
 Then reload plugins in Dispatcharr and enable **Arr Stack Connector**. When enabled, the plugin starts one managed service process (default port `9192`) even when Dispatcharr has multiple uWSGI workers.
@@ -61,7 +62,7 @@ An API key is generated automatically on first enable. Use the plugin's **Servic
 
 ### One-time migration from Dispatcharr VOD Newznab
 
-The new slug is a separate Dispatcharr plugin identity, so an existing installation does not update in place automatically.
+The new slug is a separate Dispatcharr plugin identity, so an existing legacy VOD Newznab installation does not update in place automatically. The steps below describe the historical underscore-key migration. For a fresh 0.34 installation use its host-selected `arr-stack-connector` directory/record instead, and do not create both spellings. Ordinary managed Arr Stack updates retain the existing key and require no directory rename.
 
 1. Disable the old plugin so its service releases port `9192`.
 2. Copy or move `/data/plugins/dispatcharr_vod_newznab` to `/data/plugins/arr_stack_connector`.
