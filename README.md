@@ -87,6 +87,10 @@ Important settings:
 - **ffprobe Path**: defaults to `/usr/bin/ffprobe`.
 - **Respect Enabled Dispatcharr VOD Groups**: limits raw provider results to VOD categories enabled for each account in Dispatcharr.
 
+## Dispatcharr compatibility
+
+This release supports Dispatcharr 0.33 and 0.34. Future changes target Dispatcharr 0.34 and later; that direction does not retroactively remove 0.33 support from this release. The manifest minimum remains 0.29.0 and is not evidence of validation on every older version. See the lifecycle validation notes for test scope and outstanding real-traffic validation.
+
 ## SAB-compatible completed layout
 
 The final relative output path is determined at SAB `addfile` time because that is when Servarr supplies the actual category. The plugin mirrors normal SAB category + job-folder behavior:

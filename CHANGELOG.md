@@ -6,7 +6,7 @@ This file contains release history only. Architectural decisions belong in `DECI
 
 The format follows Keep a Changelog principles where practical.
 
-## [0.2.1-beta.1] - 2026-11-17
+## [0.2.1] - 2026-11-17
 
 ### Fixed
 
@@ -16,7 +16,7 @@ The format follows Keep a Changelog principles where practical.
 
 ### Upgrade note
 
-- Perform a clean Dispatcharr restart after installing this first reconciler beta. Mixed old/new loaded plugin instances are not supported.
+- Perform a clean Dispatcharr restart after installing this reconciler release. Mixed old/new loaded plugin instances are not supported.
 - Isolated lifecycle/authentication tests passed on 0.33 and 0.34; real provider and Sonarr/Radarr/Mustarrd download traffic remains a deployment validation step.
 
 ### Changed

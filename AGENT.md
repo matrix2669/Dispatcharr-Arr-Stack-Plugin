@@ -131,7 +131,7 @@ The checkpoint does not authorize merging into `dev` or `main`, tagging, changin
 
 ## Dispatcharr compatibility refresh gate
 
-The current recorded minimum is Dispatcharr `v0.29.0`. Whenever the supported, minimum, tested, or deployed Dispatcharr version changes, revalidate this plugin and its registry manifest against the matching revision of the official `Dispatcharr/Dispatcharr` repository before tagging or publishing.
+Release 0.2.1 supports Dispatcharr 0.33 and 0.34; future changes target 0.34 and later, without retroactively changing this release. The recorded manifest minimum remains `v0.29.0` and is not a claim of current validation across older versions. Whenever the supported, minimum, tested, or deployed Dispatcharr version changes, revalidate this plugin and its registry manifest against the matching revision of the official `Dispatcharr/Dispatcharr` repository before tagging or publishing.
 
 Baseline evidence: Dispatcharr `v0.29.0` at `d9abece081c9edf637d4c3fdd41443eb993a3c08` was reviewed on 2026-08-22. Its registry installer sanitizes hyphens to underscores, so slug `arr-stack-connector` installs as key/directory `arr_stack_connector`. Its plugin loader derives the key from that installed directory, reads `plugin.json` without executing disabled plugin code, and supports the field/action shapes used here. Its VOD proxy accepts the preferred account/stream parameters used here and bypasses the Redirect-to-provider path when a session is already present. Its movie and episode relations remain unique by `(m3u_account, stream_id)`.
 
