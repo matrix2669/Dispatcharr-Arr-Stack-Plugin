@@ -1,8 +1,5 @@
 import fcntl
 import errno
-import threading
-import types
-from contextlib import contextmanager
 import json
 import logging
 import os
@@ -23,11 +20,9 @@ STATE_DIR = Path(os.environ.get("ARR_STACK_CONNECTOR_STATE_DIR") or "/data/arr_s
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 PID_FILE = STATE_DIR / ".servarr_service.pid"
 LOCK_FILE = STATE_DIR / ".servarr_service.lock"
-CONTROL_FILE = STATE_DIR / ".servarr_service.control.json"
 LOG_FILE = STATE_DIR / "servarr_service.log"
 BOOTSTRAP_LOG_FILE = STATE_DIR / "servarr_service_bootstrap.log"
 SERVICE_SCRIPT = (ROOT / "service.py").resolve()
-_UNSET = object()
 
 
 class _PluginLogAdapter(logging.LoggerAdapter):
@@ -123,164 +118,11 @@ class Plugin:
         if os.environ.get("ARR_STACK_CONNECTOR_SERVICE", "").lower() in {"1", "true", "yes"}:
             return
         try:
-            epoch = self._control().get("epoch")
-            if not self._ensure_service(epoch):
-                self._queue_retry(epoch)
+            self._ensure_service()
         except Exception:
             log.exception(
                 "Detached Newznab/SAB service failed to start; plugin remains loaded for diagnostics"
             )
-
-    @staticmethod
-    def _native(name):
-        primitive = getattr(threading, name)
-        try:
-            import gevent.monkey
-            if gevent.monkey.is_module_patched("threading"):
-                return gevent.monkey.get_original("threading", name)
-        except ImportError:
-            pass
-        return primitive
-
-    def _control(self):
-        try:
-            return json.loads(CONTROL_FILE.read_text())
-        except FileNotFoundError:
-            return {}
-
-    def _configuration(self):
-        # Read only lifecycle state, never credentials. Revision is not evidence
-        # of an enable transition: settings and metadata change it as well.
-        from apps.plugins.models import PluginConfig
-        cfg = PluginConfig.objects.filter(key=PLUGIN_KEY).values("enabled", "updated_at").first()
-        return (bool(cfg and cfg["enabled"]), str(cfg["updated_at"]) if cfg else "")
-
-    @staticmethod
-    def _after_commit(callback):
-        from django.db import transaction
-        transaction.on_commit(callback)
-
-    def _confirm_disabled(self, token):
-        # Called only after the reader's transaction commits. An uncommitted
-        # false value must never arm the barrier if that transaction rolls back.
-        enabled, _ = self._configuration()
-        if enabled:
-            return
-        with self._operation_lock(timeout=2, path=CONTROL_FILE.with_suffix(".lock")) as acquired:
-            if not acquired:
-                raise RuntimeError("Unable to confirm committed disabled state")
-            control = self._control()
-            if control.get("disable_token") == token:
-                control["disabled_observed"] = True
-                self._write_control(control)
-
-    def _enabled_after_disable(self, control):
-        enabled, _ = self._configuration()
-        token = control.get("disable_token")
-        if not enabled:
-            if token and not control.get("disabled_observed"):
-                self._after_commit(lambda: self._confirm_disabled(token))
-            return False
-        # A later enabled value is meaningful only after we actually observed
-        # committed disabled state. updated_at also changes for unrelated edits.
-        return not token or bool(control.get("disabled_observed"))
-
-    def _may_start(self, epoch):
-        control = self._control()
-        return (control.get("epoch") == epoch and not control.get("stopped")
-                and self._enabled_after_disable(control))
-
-    def _request(self, stopped=None, disable=False):
-        # Serialize read/modify/write independently of service startup. Restart
-        # may clear an operator Stop, but cannot erase a pending Disable fence.
-        with self._operation_lock(timeout=2, path=CONTROL_FILE.with_suffix(".lock")) as acquired:
-            if not acquired:
-                raise RuntimeError("Lifecycle request timed out updating control state")
-            control = self._control()
-            control["epoch"] = secrets.token_hex(16)
-            if stopped is not None:
-                control["stopped"] = stopped
-            if disable:
-                control["disable_token"] = secrets.token_hex(16)
-                control["disabled_observed"] = False
-            self._write_control(control)
-            epoch = control["epoch"]
-            token = control.get("disable_token")
-        if disable:
-            self._after_commit(lambda: self._confirm_disabled(token))
-        return epoch
-
-    def _write_control(self, control):
-        # Caller holds the control-file lock; service-operation lock is separate.
-        temporary = CONTROL_FILE.with_name(CONTROL_FILE.name + "." + secrets.token_hex(16))
-        try:
-            with temporary.open("x") as out:
-                os.chmod(temporary, 0o600)
-                json.dump(control, out)
-            os.replace(temporary, CONTROL_FILE)
-        finally:
-            temporary.unlink(missing_ok=True)
-
-    @contextmanager
-    def _operation_lock(self, timeout=0, path=None):
-        # Never block in flock: another constructor can run in the same gevent
-        # process while the owner is waiting for its local HTTP health check.
-        with (path or LOCK_FILE).open("a+") as handle:
-            deadline = time.monotonic() + timeout
-            acquired = False
-            while True:
-                try:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    acquired = True
-                    break
-                except OSError as exc:
-                    if exc.errno not in (errno.EACCES, errno.EAGAIN):
-                        raise
-                    if time.monotonic() >= deadline:
-                        break
-                    time.sleep(0.05)
-            try:
-                yield acquired
-            finally:
-                if acquired:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-    def _queue_retry(self, epoch):
-        # Plugin modules can be re-imported on reload. Keep only a tiny
-        # process-local retry registry outside those module identities.
-        key = "_arr_stack_start_retries"
-        candidate = types.ModuleType(key)
-        candidate.lock = self._native("RLock")()
-        candidate.jobs = {}
-        state = sys.modules.setdefault(key, candidate)
-        identity = (os.getpid(), str(STATE_DIR))
-        with state.lock:
-            current = state.jobs.get(identity)
-            if current and current[0] == epoch and current[1].is_alive():
-                return
-            def retry():
-                deadline = time.monotonic() + 30
-                try:
-                    while time.monotonic() < deadline:
-                        if not self._may_start(epoch):
-                            return
-                        if self._ensure_service(epoch):
-                            return
-                        time.sleep(0.1)
-                    log.error("Deferred service startup timed out waiting for lifecycle ownership")
-                except Exception:
-                    log.exception("Deferred Newznab/SAB service startup failed")
-                finally:
-                    # Only this private retry thread owns these connections.
-                    # Never close a caller's transactional connection in stop().
-                    try:
-                        from django.db import connections
-                        connections.close_all()
-                    except ImportError:
-                        pass
-            thread = self._native("Thread")(target=retry, daemon=True, name="arr-stack-start-retry")
-            state.jobs[identity] = (epoch, thread)
-            thread.start()
 
     def _desired_version(self):
         return _installed_version() or self.version
@@ -359,39 +201,22 @@ class Plugin:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             return
-        deadline = time.monotonic() + 8
-        while time.monotonic() < deadline:
+        deadline = time.time() + 8
+        while time.time() < deadline:
             if not self._pid_is_service(pid):
                 return
             time.sleep(0.2)
         if self._pid_is_service(pid):
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                return
-            deadline = time.monotonic() + 2
-            while time.monotonic() < deadline:
-                if not self._pid_is_service(pid):
-                    return
-                time.sleep(0.05)
-            raise RuntimeError("Service process did not exit; refusing replacement")
+            os.kill(pid, signal.SIGKILL)
 
-    def _stop_service_locked(self):
+    def _stop_service(self):
         pid = self._service_pid()
         if pid:
             self._stop_pid(pid)
-        PID_FILE.unlink(missing_ok=True)
-
-    def _stop_service(self, replacement=False, disable=False):
-        epoch = self._request(stopped=None if replacement or disable else True, disable=disable)
-        with self._operation_lock(timeout=15) as acquired:
-            if not acquired:
-                raise RuntimeError("Service stop timed out waiting for lifecycle ownership")
-            control = self._control()
-            if control.get("epoch") == epoch or (disable and not self._enabled_after_disable(control)):
-                self._stop_service_locked()
-                return True
-            return False
+        try:
+            PID_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     def _start_service(self):
         interpreter = self._interpreter()
@@ -421,45 +246,48 @@ class Plugin:
         PID_FILE.write_text(str(process.pid))
         return process.pid
 
-    def _ensure_service(self, epoch=_UNSET):
-        if epoch is _UNSET:
-            epoch = self._control().get("epoch")
-        if not self._may_start(epoch):
-            return True  # Cancelled or disabled; no pending startup remains.
-        with self._operation_lock() as acquired:
-            if not acquired:
+    def _ensure_service(self, restart=False):
+        with LOCK_FILE.open("a+") as lock_handle:
+            # Concurrent discovery may run in the same gevent process as the
+            # initializer. A blocking flock can freeze its lock owner too.
+            try:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                if exc.errno not in (errno.EAGAIN, errno.EACCES):
+                    raise
+                log.info("Service startup already owned by another initializer; "
+                         "no retry scheduled. Check status or Restart if that attempt fails.")
                 return False
-            return self._ensure_service_locked(epoch)
+            # A busy Restart must not kill the other initializer's child.
+            if restart:
+                self._stop_service()
+            desired_version = self._desired_version()
+            pid = self._service_pid()
+            health = self._health() if pid else None
+            running_version = str((health or {}).get("version") or "")
 
-    def _ensure_service_locked(self, epoch):
-        if not self._may_start(epoch):
-            return True
-        desired_version = self._desired_version()
-        pid = self._service_pid()
-        health = self._health() if pid else None
-        running_version = str((health or {}).get("version") or "")
-        if pid and health and running_version == desired_version:
-            return True
-        if pid:
-            self._stop_pid(pid)
-            PID_FILE.unlink(missing_ok=True)
-        if not self._may_start(epoch):
-            return True
-        child = self._start_service()
-        deadline = time.monotonic() + 12
-        while time.monotonic() < deadline:
-            if not self._may_start(epoch):
-                self._stop_pid(child)
+            if pid and health and running_version == desired_version:
+                return True
+
+            if pid:
+                if health:
+                    log.info(
+                        "Replacing stale detached service pid=%s running=%s installed=%s",
+                        pid,
+                        running_version or "unknown",
+                        desired_version,
+                    )
+                self._stop_pid(pid)
                 PID_FILE.unlink(missing_ok=True)
-                return True
-            health = self._health()
-            if health and str(health.get("version") or "") == desired_version:
-                return True
-            time.sleep(0.25)
-        # Don't strand a half-started child after the winning attempt fails.
-        self._stop_pid(child)
-        PID_FILE.unlink(missing_ok=True)
-        raise RuntimeError("Detached Newznab/SAB service failed health check after startup")
+
+            self._start_service()
+            deadline = time.time() + 12
+            while time.time() < deadline:
+                health = self._health()
+                if health and str(health.get("version") or "") == desired_version:
+                    return True
+                time.sleep(0.25)
+            raise RuntimeError("Detached Newznab/SAB service failed health check after startup")
 
     def run(self, action_id, params=None, context=None):
         if action_id == "status":
@@ -474,24 +302,13 @@ class Plugin:
                 "bootstrap_log_file": str(BOOTSTRAP_LOG_FILE),
             }
         if action_id == "restart":
-            epoch = self._request(stopped=False)
-            with self._operation_lock(timeout=15) as acquired:
-                if not acquired:
-                    raise RuntimeError("Service restart timed out waiting for lifecycle ownership")
-                if self._control().get("epoch") != epoch:
-                    return {"status": False, "message": "Restart superseded by a newer lifecycle request"}
-                self._stop_service_locked()
-                self._ensure_service_locked(epoch)
-            health = self._health()
-            return {"status": bool(health), "message": "Service restart completed", "service": health or {}}
+            if not self._ensure_service(restart=True):
+                return {"status": False, "message": "Service startup is busy; retry Restart after it finishes"}
+            return {"status": True, "message": "Service restarted", "service": self._health() or {}}
         if action_id == "stop":
-            stopped = self._stop_service()
-            return {"status": stopped, "message": "Service stopped" if stopped else "Stop superseded by a newer lifecycle request"}
+            self._stop_service()
+            return {"status": True, "message": "Service stopped"}
         raise ValueError(f"Unknown action: {action_id}")
 
     def stop(self, context=None):
-        reason = (context or {}).get("reason")
-        self._stop_service(
-            replacement=reason in {"reload", "shutdown"},
-            disable=reason in {"disable", "delete", "capability_update_denied"},
-        )
+        self._stop_service()

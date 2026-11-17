@@ -1034,41 +1034,33 @@ Rebuild the required implementation cleanly from current upstream, run both proj
 
 ---
 
-## 2026-11-17: Bound concurrent service startup without changing bridge contracts
+## 2026-11-17: Startup-contention correction only
 
-Dispatcharr 0.34 can construct this plugin concurrently from ordinary discovery and
-its new leadership discovery thread. The previous blocking `flock(LOCK_EX)` can
-stall the same process whose other execution context owns that lock and is waiting
-for the detached service's health check. An isolated copied-data reproduction
-showed that lock cycle; removing Arr Stack eliminated the startup hang.
+An isolated copied-data reproduction on Dispatcharr 0.34 showed concurrent
+constructor discovery waiting in blocking `flock(LOCK_EX)` in the same process
+that owned the lock. Removing Arr Stack eliminated the startup hang.
 
-Keep the existing constructor-based service adapter for Dispatcharr 0.33 support.
-Use nonblocking file-lock acquisition, with a process-local deduplicated retry
-bounded to 30 seconds when startup ownership is busy. Timeouts and failures are
-logged rather than silently skipping startup. Do not invent an `on_start` hook or
-claim migration to Dispatcharr 0.34's leader-service lifecycle.
+After review and technical escalation, narrow the correction to nonblocking
+startup ownership. A contending constructor returns immediately and logs that no
+retry is scheduled. The winning initializer retains existing health checks and
+error logging. A later explicit Restart can recover a failed winning attempt.
+Restart acquires the same nonblocking startup lock before stopping the existing
+service, so a busy Restart cannot kill the winning initializer's child; it reports
+busy rather than success. No background starts, control records, durable disable
+history, timestamp inference, or transaction callbacks are introduced.
 
-A separately locked atomic control record fences attempts by request epoch.
-Explicit Stop is a persistent latch, cleared only by explicit Restart; ordinary
-reload, shutdown and configuration changes preserve it. Disable records a separate
-committed-state barrier that Restart cannot clear, including while another
-connection still sees the old enabled row before the disable transaction commits.
-An on-commit callback must observe disabled state before a later enabled value can
-pass the barrier. A disabled read inside a transaction cannot arm the barrier
-until commit; rollback discards that callback. `updated_at` is never evidence of
-an enable transition. Reload/shutdown preserve both inhibitions. A superseded
-Disable still stops the service while its barrier applies. Interrupted/rolled-back
-Disable stays fail-closed through unrelated settings/metadata writes; recovery
-requires a genuinely committed disable followed by enable. Stop and
-restart share startup's operation lock; failed process termination refuses a
-replacement. Reads must not close the caller's transactional Django connection.
-The private retry thread closes only its own connections on exit.
+The earlier unpublished lifecycle redesign attempts on this local branch are
+superseded, not accepted product behavior. Preserve the released plugin's existing
+stop/disable/delete semantics. Stop is not persistent across future construction;
+the constructor does not check enabled state; stop hooks are not serialized with
+all concurrent discovery paths. This patch does not promise to repair those
+inherited races or implement Dispatcharr 0.34's leader-service lifecycle.
 
-This bounded compatibility fix preserves endpoint, settings, API-key, state path,
-provider, download and LineupARR contracts. It is not a replacement for a future
-host-managed lifecycle design, distributed fencing, or an indefinite supervisor.
-The legacy constructor still performs a bounded initial startup health wait.
+A winning initializer's failure/timeout is logged, not automatically retried. A
+half-started unhealthy child can remain, as before; explicit Restart stops it and
+tries again. This limitation is explicit rather than hidden behind an invented
+future retry or enable-transition guarantee.
 
-Local development remains untagged at version 0.2.0. A separately authorized
-publication must select a new version and satisfy release/registry gates; this
-work does not mutate the released 0.2.0 artifact or the live installation.
+Endpoint, API-key, provider, download, state-path and LineupARR contracts are
+unchanged. Development remains untagged at version 0.2.0; publication requires a
+new version and separate authorization/release gates. No live upgrade is included.
