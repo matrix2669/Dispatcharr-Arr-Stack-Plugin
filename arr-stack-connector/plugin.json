@@ -23,7 +23,7 @@
   ],
   "actions": [
     {"id":"status","label":"Service Status","description":"Show the embedded Newznab/SAB service status and connection information.","button_label":"Check"},
-    {"id":"restart","label":"Restart Service","description":"Restart the embedded Newznab/SAB service after settings changes.","button_label":"Restart"},
-    {"id":"stop","label":"Stop Service","description":"Stop the embedded Newznab/SAB service.","button_label":"Stop","confirm":{"required":true,"title":"Stop service?","message":"Sonarr and Radarr will be unable to search or download until it is restarted."}}
+    {"id":"restart","label":"Restart Service","description":"Clear manual Stop and restart the service when the plugin is enabled.","button_label":"Restart"},
+    {"id":"stop","label":"Stop Service","description":"Stop until Restart is selected. Disabling and re-enabling the plugin does not clear manual Stop.","button_label":"Stop","confirm":{"required":true,"title":"Stop service?","message":"Sonarr and Radarr will be unable to search or download until it is restarted."}}
   ]
 }

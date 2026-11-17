@@ -42,8 +42,8 @@ This ledger records why every current branch exists. GitHub remains authoritativ
 
 - Purpose: correct Arr Stack Connector startup coordination for concurrent Dispatcharr 0.34 discovery while retaining 0.33 compatibility.
 - Base: `origin/dev` at `f77ced5`; isolated local worktree, no production edits.
-- Scope: startup contention only; nonblocking ownership, truthful busy Restart, automated regressions and isolated runtime checks. Existing lifecycle limitations are explicitly retained.
+- Scope: automatic committed-state reconciliation, native watchdog recovery, single-process lifetime ownership, durable manual commands, generation-safe replacement and isolated lifecycle validation. Earlier narrow/durable-transition attempts are superseded.
 - Authorization: implement/test locally; no push, integration, registry publication, release or deployment in this task.
 - Status: implemented locally, awaiting independent review; production remains pinned to 0.33.0.
-- Validation: 38 automated tests; isolated 0.33/0.34 all-plugin extended startup and lifecycle characterization. See `docs/dispatcharr-034-startup-validation.md` for evidence and inherited limitations. No remote CI or deployment.
+- Validation: portable and Linux-specific automated tests; isolated 0.33/0.34 all-plugin committed-state, failure-recovery and generation tests. See `docs/dispatcharr-034-startup-validation.md` for exact evidence and remaining release gates. No remote CI or deployment.
 - Last verified: 2026-11-17.

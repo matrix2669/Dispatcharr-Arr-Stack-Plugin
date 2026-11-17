@@ -1034,33 +1034,47 @@ Rebuild the required implementation cleanly from current upstream, run both proj
 
 ---
 
-## 2026-11-17: Startup-contention correction only
+## 2026-11-17: Automatic committed-state reconciliation
 
-An isolated copied-data reproduction on Dispatcharr 0.34 showed concurrent
-constructor discovery waiting in blocking `flock(LOCK_EX)` in the same process
-that owned the lock. Removing Arr Stack eliminated the startup hang.
+The initial Dispatcharr 0.34 incompatibility was reproduced as blocking flock
+contention during concurrent discovery. Narrow contention-only fixes were then
+rejected: they could lose the final start after a concurrent reload/stop. Earlier
+unpublished durable-disable attempts were also rejected because callbacks and
+`updated_at` do not establish transaction outcome or a genuine enable transition.
+The owner explicitly required an automated distributable solution, not manual
+repair. These earlier local attempts are superseded, not accepted behavior.
 
-After review and technical escalation, narrow the correction to nonblocking
-startup ownership. A contending constructor returns immediately and logs that no
-retry is scheduled. The winning initializer retains existing health checks and
-error logging. A later explicit Restart can recover a failed winning attempt.
-Restart acquires the same nonblocking startup lock before stopping the existing
-service, so a busy Restart cannot kill the winning initializer's child; it reports
-busy rather than success. No background starts, control records, durable disable
-history, timestamp inference, or transaction callbacks are introduced.
+Use one detached lease-owning process containing both the reconciler and HTTP
+listener thread. Native, fork-aware watchdogs in host processes only ensure that
+owner is available; constructors return without database reads or health waits.
+Spawn transfers the same flock open-file-description safely, closes unrelated
+inheritable descriptors, and never unlocks the child's lease from the parent.
+Normal lifecycle effects have no stale global-PID signalling and no orphan child.
+Owner death closes listener and lease together; a watchdog supplies the successor.
 
-The earlier unpublished lifecycle redesign attempts on this local branch are
-superseded, not accepted product behavior. Preserve the released plugin's existing
-stop/disable/delete semantics. Stop is not persistent across future construction;
-the constructor does not check enabled state; stop hooks are not serialized with
-all concurrent discovery paths. This patch does not promise to repair those
-inherited races or implement Dispatcharr 0.34's leader-service lifecycle.
+The independent owner polls fresh committed PluginConfig state. Missing/disabled
+state means no listener; database failure fails closed. Host disable, delete,
+capability-denial, reload and shutdown hooks are wake hints only. Rollback or rapid
+re-enable therefore needs no inferred transition history. Periodic reconciliation
+covers lost callbacks and saves without callbacks. Short polling, per-attempt
+kernel deadlines and automatic backoff are explicit; instantaneous consistency is
+not claimed. Already accepted requests may finish; remote downloads are not
+canceled by this lifecycle change.
 
-A winning initializer's failure/timeout is logged, not automatically retried. A
-half-started unhealthy child can remain, as before; explicit Restart stops it and
-tries again. This limitation is explicit rather than hidden behind an invented
-future retry or enable-transition guarantee.
+Manual Stop is a separate durable, serialized command, cleared only by explicit
+Restart. Restart never forces a disabled configuration on. Command acknowledgments
+refer to the latest command and a matching live owner. Source generations are
+captured before spawn and rechecked before listening, avoiding mixed-file startup.
+Source changes and Restart retire the owner; the kernel releases its lifetime
+lease only at process exit, after which watchdogs load current code.
 
-Endpoint, API-key, provider, download, state-path and LineupARR contracts are
-unchanged. Development remains untagged at version 0.2.0; publication requires a
-new version and separate authorization/release gates. No live upgrade is included.
+Legacy migration uses pidfd-based identity verification for exact old service
+scripts, not a stale PID file or arbitrary port owner. A clean Dispatcharr restart
+is required when upgrading from old loaded plugin code; new code cannot infer the
+meaning of an old instance's uncoordinated SIGTERM. Unsupported process primitives
+fail explicitly. No platform fallback weakens ownership safety.
+
+Keep endpoint/settings/API-key/provider/download/state-path and LineupARR
+contracts unchanged. Development remains untagged at 0.2.0; a separately authorized
+release must choose a new version, satisfy review/CI/archive/upgrade gates, and
+perform the clean restart. No production upgrade or publication is included here.

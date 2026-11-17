@@ -1,12 +1,7 @@
-import fcntl
-import errno
 import json
 import logging
 import os
-import secrets
 import shutil
-import signal
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -18,11 +13,8 @@ ROOT = Path(__file__).resolve().parent
 PLUGIN_KEY = ROOT.name.replace(" ", "_").lower()
 STATE_DIR = Path(os.environ.get("ARR_STACK_CONNECTOR_STATE_DIR") or "/data/arr_stack_connector")
 STATE_DIR.mkdir(parents=True, exist_ok=True)
-PID_FILE = STATE_DIR / ".servarr_service.pid"
-LOCK_FILE = STATE_DIR / ".servarr_service.lock"
 LOG_FILE = STATE_DIR / "servarr_service.log"
 BOOTSTRAP_LOG_FILE = STATE_DIR / "servarr_service_bootstrap.log"
-SERVICE_SCRIPT = (ROOT / "service.py").resolve()
 
 
 class _PluginLogAdapter(logging.LoggerAdapter):
@@ -148,167 +140,78 @@ class Plugin:
             roots.extend(current.split(os.pathsep))
         return os.pathsep.join(_dedupe_path_entries(roots))
 
-    def _read_pid(self):
+    def _lifecycle(self):
         try:
-            return int(PID_FILE.read_text().strip())
-        except Exception:
-            return None
+            from .servarr_bridge import lifecycle
+        except ImportError:
+            from servarr_bridge import lifecycle
+        return lifecycle
 
-    def _pid_is_service(self, pid):
-        if not pid or pid <= 1:
-            return False
-        try:
-            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
-        except Exception:
-            return False
-        return str(SERVICE_SCRIPT) in cmdline
-
-    def _discover_service_pid(self):
-        for proc in Path("/proc").iterdir():
-            if not proc.name.isdigit():
-                continue
-            pid = int(proc.name)
-            if self._pid_is_service(pid):
-                return pid
-        return None
-
-    def _service_pid(self):
-        pid = self._read_pid()
-        if self._pid_is_service(pid):
-            return pid
-        discovered = self._discover_service_pid()
-        if discovered:
-            try:
-                PID_FILE.write_text(str(discovered))
-            except Exception:
-                pass
-        return discovered
+    def _ensure_service(self):
+        env = os.environ.copy()
+        env.update(ARR_STACK_CONNECTOR_PLUGIN_KEY=PLUGIN_KEY,
+                   ARR_STACK_CONNECTOR_PLUGIN_DIR=str(ROOT),
+                   ARR_STACK_CONNECTOR_STATE_DIR=str(STATE_DIR),
+                   ARR_STACK_CONNECTOR_SERVICE="1", DISPATCHARR_SKIP_PLUGIN_AUTODISCOVERY="1",
+                   PYTHONPATH=self._child_pythonpath())
+        roots = _dispatcharr_app_roots()
+        if roots:
+            env["DISPATCHARR_APP_ROOT"] = str(roots[0])
+        return self._lifecycle().ensure_watchdog(ROOT, STATE_DIR, self._interpreter(), env)
 
     def _health(self):
-        try:
-            with urlopen("http://127.0.0.1:9192/health", timeout=2) as response:
-                if response.status != 200:
-                    return None
-                payload = json.loads(response.read().decode("utf-8"))
-                return payload if isinstance(payload, dict) else None
-        except Exception:
+        state = self._lifecycle().owner_status(STATE_DIR)
+        if not state.get("alive") or not state.get("listening"):
             return None
-
-    def _stop_pid(self, pid):
-        if not self._pid_is_service(pid):
-            return
+        host = state.get("host") or "127.0.0.1"
+        if host in {"0.0.0.0", "::"}:
+            host = "127.0.0.1" if host == "0.0.0.0" else "[::1]"
+        elif ":" in host and not host.startswith("["):
+            host = "[" + host + "]"
         try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-        deadline = time.time() + 8
-        while time.time() < deadline:
-            if not self._pid_is_service(pid):
-                return
-            time.sleep(0.2)
-        if self._pid_is_service(pid):
-            os.kill(pid, signal.SIGKILL)
-
-    def _stop_service(self):
-        pid = self._service_pid()
-        if pid:
-            self._stop_pid(pid)
-        try:
-            PID_FILE.unlink(missing_ok=True)
+            with urlopen(f"http://{host}:{int(state.get('port') or 9192)}/health", timeout=2) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                if response.status == 200 and payload.get("owner") == state.get("owner"):
+                    return payload
         except Exception:
             pass
-
-    def _start_service(self):
-        interpreter = self._interpreter()
-        app_roots = _dispatcharr_app_roots()
-        env = os.environ.copy()
-        env["ARR_STACK_CONNECTOR_PLUGIN_KEY"] = PLUGIN_KEY
-        env["ARR_STACK_CONNECTOR_PLUGIN_DIR"] = str(ROOT)
-        env["ARR_STACK_CONNECTOR_STATE_DIR"] = str(STATE_DIR)
-        env["ARR_STACK_CONNECTOR_SERVICE"] = "1"
-        env["DISPATCHARR_SKIP_PLUGIN_AUTODISCOVERY"] = "1"
-        env["ARR_STACK_CONNECTOR_RUNNING_VERSION"] = self._desired_version()
-        env["PYTHONPATH"] = self._child_pythonpath()
-        if app_roots:
-            env["DISPATCHARR_APP_ROOT"] = str(app_roots[0])
-
-        with BOOTSTRAP_LOG_FILE.open("ab", buffering=0) as bootstrap:
-            process = subprocess.Popen(
-                [interpreter, str(SERVICE_SCRIPT)],
-                cwd=str(ROOT),
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=bootstrap,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                close_fds=True,
-            )
-        PID_FILE.write_text(str(process.pid))
-        return process.pid
-
-    def _ensure_service(self, restart=False):
-        with LOCK_FILE.open("a+") as lock_handle:
-            # Concurrent discovery may run in the same gevent process as the
-            # initializer. A blocking flock can freeze its lock owner too.
-            try:
-                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError as exc:
-                if exc.errno not in (errno.EAGAIN, errno.EACCES):
-                    raise
-                log.info("Service startup already owned by another initializer; "
-                         "no retry scheduled. Check status or Restart if that attempt fails.")
-                return False
-            # A busy Restart must not kill the other initializer's child.
-            if restart:
-                self._stop_service()
-            desired_version = self._desired_version()
-            pid = self._service_pid()
-            health = self._health() if pid else None
-            running_version = str((health or {}).get("version") or "")
-
-            if pid and health and running_version == desired_version:
-                return True
-
-            if pid:
-                if health:
-                    log.info(
-                        "Replacing stale detached service pid=%s running=%s installed=%s",
-                        pid,
-                        running_version or "unknown",
-                        desired_version,
-                    )
-                self._stop_pid(pid)
-                PID_FILE.unlink(missing_ok=True)
-
-            self._start_service()
-            deadline = time.time() + 12
-            while time.time() < deadline:
-                health = self._health()
-                if health and str(health.get("version") or "") == desired_version:
-                    return True
-                time.sleep(0.25)
-            raise RuntimeError("Detached Newznab/SAB service failed health check after startup")
+        return None
 
     def run(self, action_id, params=None, context=None):
+        lifecycle = self._lifecycle()
         if action_id == "status":
+            state = lifecycle.owner_status(STATE_DIR)
             health = self._health()
             return {
-                "status": bool(health),
-                "service": health or {},
-                "pid": self._service_pid(),
-                "installed_version": self._desired_version(),
+                "status": bool(health), "service": health or {},
+                "pid": state.get("pid") if state.get("alive") else None,
+                "controller": state, "installed_version": self._desired_version(),
                 "dispatcharr_app_roots": [str(path) for path in _dispatcharr_app_roots()],
-                "log_file": str(LOG_FILE),
-                "bootstrap_log_file": str(BOOTSTRAP_LOG_FILE),
+                "log_file": str(LOG_FILE), "bootstrap_log_file": str(BOOTSTRAP_LOG_FILE),
             }
-        if action_id == "restart":
-            if not self._ensure_service(restart=True):
-                return {"status": False, "message": "Service startup is busy; retry Restart after it finishes"}
-            return {"status": True, "message": "Service restarted", "service": self._health() or {}}
-        if action_id == "stop":
-            self._stop_service()
-            return {"status": True, "message": "Service stopped"}
-        raise ValueError(f"Unknown action: {action_id}")
+        if action_id not in {"restart", "stop"}:
+            raise ValueError(f"Unknown action: {action_id}")
+        token = lifecycle.request(STATE_DIR, action_id)
+        self._ensure_service()
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if lifecycle.read_json(lifecycle.control_path(STATE_DIR)).get("command") != token:
+                return {"status": False, "message": "Superseded by a newer service command"}
+            state = lifecycle.owner_status(STATE_DIR)
+            if state.get("command") == token and state.get("alive"):
+                if action_id == "stop" and state.get("phase") == "stopped":
+                    return {"status": True, "message": "Service stopped; automatic starts inhibited until Restart"}
+                if action_id == "restart" and state.get("phase") == "running":
+                    health = self._health()
+                    if health:
+                        return {"status": True, "message": "Service restarted", "service": health}
+                if action_id == "restart" and state.get("phase") == "disabled":
+                    return {"status": False, "message": "Plugin is disabled; service will start automatically when enabled"}
+            time.sleep(0.1)
+        return {"status": False, "message": "Command saved; automatic reconciliation is still pending", "controller": lifecycle.owner_status(STATE_DIR)}
 
     def stop(self, context=None):
-        self._stop_service()
+        # Host callbacks precede commits in some paths and follow them in others.
+        # They are availability/wake hints, NEVER guessed desired-state changes.
+        # The independent owner reads the actual committed row (missing=off).
+        self._ensure_service()

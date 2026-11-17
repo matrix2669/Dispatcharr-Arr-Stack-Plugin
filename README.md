@@ -115,7 +115,7 @@ The plugin always rebuilds this path when `mode=addfile` is received, so an olde
 
 The plugin uses Dispatcharr's `apps.plugins.loader` logger for plugin lifecycle messages, prefixed with `[Arr Stack Connector]`.
 
-The detached Newznab/SAB service writes its own rotating log beside the installed plugin:
+The detached Newznab/SAB service writes its rotating log in the persistent plugin state directory:
 
 ```text
 /data/arr_stack_connector/servarr_service.log
@@ -128,6 +128,44 @@ The log rotates at 5 MB and keeps three backups. Very early child-process stdout
 ```
 
 Routine `/health` probes are logged only at DEBUG.
+
+Bootstrap output is also rotated before a new owner launch when it exceeds 5 MB,
+with three backups. Service Status includes the current controller phase and any
+startup error; no saved credentials are included in that record.
+
+## Service lifecycle (development)
+
+The service now reconciles current **committed** Dispatcharr configuration rather
+than starting/stopping inside plugin discovery. A single lease-owning process
+hosts the HTTP listener. Lightweight native watchdogs recover that process if it
+exits, and failed listener startup is retried automatically.
+
+- Enabling starts the listener automatically; committed disable or a missing
+  configuration row stops it. Rollback and rapid disable/re-enable do not require
+  any remembered intermediate transition.
+- **Stop Service** is a persistent manual inhibit. Reload, shutdown and toggling
+  enabled do not clear it. **Restart Service** clears it, but never overrides a
+  disabled plugin configuration.
+- Source updates replace the owner automatically. The lifetime lock is retained
+  until process teardown, so a replacement cannot overlap the previous owner.
+- Reconciliation is asynchronous, not instantaneous at the commit boundary.
+  Already accepted requests may finish; remote Mustarrd downloads are not canceled.
+- Database errors fail closed. Startup, reconciliation and shutdown attempts have
+  deadlines; watchdogs retry after a failed owner exits. Permanent configuration,
+  filesystem or database failures still need their underlying cause corrected.
+
+This development implementation is validated on the Linux/Python 3.13 Dispatcharr
+0.33 and 0.34 runtimes. It requires safe `posix_spawn` CLOSEFROM and Linux pidfd
+support; unsupported runtime capabilities are reported rather than bypassed.
+
+**Upgrade requirement:** the first upgrade from the older constructor-based
+service requires a clean Dispatcharr restart after installation. Old loaded plugin
+instances cannot acquire the new manual-Stop semantics merely by updating files.
+Do not promise safe mixed-generation rolling behavior. Settings, API key, plugin
+identity and `/data/arr_stack_connector` remain unchanged. Do not remove the
+private ownership lock while Dispatcharr is running. Publication and deployment
+of this development code remain separate release gates.
+
 
 ## Radarr / Sonarr indexer
 

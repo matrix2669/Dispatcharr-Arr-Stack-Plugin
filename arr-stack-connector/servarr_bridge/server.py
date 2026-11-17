@@ -1,8 +1,7 @@
 import json
 import logging
 import os
-import sys
-import threading
+import time
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,7 +9,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from django.db import close_old_connections
 
-from .config import PLUGIN_DIR, get_settings, normalized_api_key
+from .config import get_settings, normalized_api_key
 from .newznab import caps_xml, grab_nzb, rss_xml, search_movies, search_tv
 from .recent import recent_movie_results, recent_tv_results
 from . import sab
@@ -30,14 +29,6 @@ def _int(value, default=0):
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def _installed_plugin_version():
-    try:
-        payload = json.loads((PLUGIN_DIR / "plugin.json").read_text())
-        return str(payload.get("version") or "").strip()
-    except Exception:
-        return ""
 
 
 def _multipart_file(content_type, body, field_name="name"):
@@ -175,6 +166,7 @@ class Handler(BaseHTTPRequestHandler):
                 "service": "arr-stack-connector",
                 "version": SERVICE_VERSION,
                 "pid": os.getpid(),
+                "owner": os.environ.get("ARR_STACK_CONNECTOR_OWNER", ""),
             })
 
         settings = self._settings_and_auth(params)
@@ -223,85 +215,25 @@ class Handler(BaseHTTPRequestHandler):
             close_old_connections()
 
 
-def run_server():
+class ManagedHTTPServer(ThreadingHTTPServer):
+    def service_actions(self):
+        self.lifecycle_heartbeat = time.monotonic()
+
+
+def create_server():
+    """Construct only; the reconciliation owner controls threads and shutdown."""
     settings = get_settings()
     host = str(settings.get("listen_host") or "0.0.0.0")
     port = int(settings.get("listen_port") or 9192)
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = ManagedHTTPServer((host, port), Handler)
     server.daemon_threads = True
+    return server
 
-    import signal
-    def stop_handler(signum, frame):
-        threading.Thread(target=server.shutdown, daemon=True).start()
-    signal.signal(signal.SIGTERM, stop_handler)
-    signal.signal(signal.SIGINT, stop_handler)
 
-    stop_watch = threading.Event()
-    restart_version = {"value": ""}
-
-    def watch_installed_version():
-        while not stop_watch.wait(2.0):
-            installed = _installed_plugin_version()
-            if not installed or installed == SERVICE_VERSION:
-                continue
-            restart_version["value"] = installed
-            logger.info(
-                "Detected plugin update on disk: running=%s installed=%s; restarting detached service",
-                SERVICE_VERSION,
-                installed,
-            )
-            server.shutdown()
-            return
-
-    watcher = threading.Thread(
-        target=watch_installed_version,
-        name="arr-stack-connector-version-watch",
-        daemon=True,
-    )
-    watcher.start()
-
-    logger.info(
-        "Arr Stack Connector Newznab/SAB service version %s listening on %s:%s (pid=%s)",
-        SERVICE_VERSION,
-        host,
-        port,
-        os.getpid(),
-    )
+def run_server():
+    # Compatibility for direct internal callers; service.py uses create_server.
+    server = create_server()
     try:
-        server.serve_forever(poll_interval=0.5)
+        server.serve_forever(poll_interval=0.25)
     finally:
-        stop_watch.set()
         server.server_close()
-
-        installed = restart_version["value"]
-        if installed:
-            env = os.environ.copy()
-            env["ARR_STACK_CONNECTOR_RUNNING_VERSION"] = installed
-            service_script = PLUGIN_DIR / "service.py"
-            logger.info(
-                "Re-executing detached service from updated plugin version %s using %s",
-                installed,
-                service_script,
-            )
-
-            try:
-                os.chdir(str(PLUGIN_DIR))
-            except OSError:
-                fallback = str(env.get("DISPATCHARR_APP_ROOT") or "").strip()
-                try:
-                    os.chdir(fallback if fallback and os.path.isdir(fallback) else "/")
-                except OSError:
-                    os.chdir("/")
-
-            os.execve(
-                sys.executable,
-                [sys.executable, str(service_script)],
-                env,
-            )
-
-        pid_file = PLUGIN_DIR / ".servarr_service.pid"
-        try:
-            if pid_file.exists() and pid_file.read_text().strip() == str(os.getpid()):
-                pid_file.unlink()
-        except Exception:
-            pass

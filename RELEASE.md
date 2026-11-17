@@ -28,6 +28,13 @@ Also verify:
 - Sonarr and Radarr validation, interactive search, grab, queue, history, retry, and deletion still work;
 - Mustarrd receives a Dispatcharr-native VOD proxy URL and reports completion through the existing SAB-compatible layout.
 
+For the first reconciler release, install then perform a clean Dispatcharr restart
+in the validation environment before accepting the upgrade. Old loaded
+constructor-based plugin instances cannot supply the new manual-Stop semantics.
+Validate owner death/timeout recovery, committed disable/rollback/rapid re-enable,
+manual Stop persistence, source replacement, and deletion/reinstall. Do not publish
+older narrow contention-only revisions from the development history.
+
 If the supported, minimum, tested, or deployed Dispatcharr version changed, complete the official-repository compatibility refresh gate in `AGENT.md` before tagging or publishing.
 
 ## Beta tag and testing registry

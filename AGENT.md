@@ -20,14 +20,16 @@ The rename changes both the public and installed plugin identity through a docum
 ## Architecture
 
 - `arr-stack-connector/plugin.json` declares Dispatcharr settings, actions, public display metadata, and the plugin version.
-- `arr-stack-connector/plugin.py` owns plugin lifecycle, one detached-service process, health actions, and API-key initialization.
-- `arr-stack-connector/service.py` initializes Django and logging before starting the detached service.
+- `arr-stack-connector/plugin.py` connects host callbacks and explicit service actions to the availability watchdog; it must not perform service effects during discovery or infer uncommitted desired state.
+- `arr-stack-connector/service.py` owns the detached process, initialization deadlines, independent committed database reads and controller loop.
+- `servarr_bridge/lifecycle.py` owns native fork-safe watchdogs, lifetime lease handoff, atomic manual commands and verified legacy migration.
+- `servarr_bridge/reconcile.py` is the sole HTTP listener owner; it handles desired-state reconciliation, recovery and generation retirement. `config.py` retains API-key initialization.
 - `arr-stack-connector/servarr_bridge/server.py` exposes Newznab, synthetic NZB, SAB-compatible, and health endpoints.
 - `provider.py` queries enabled original Xtream providers, matches content identifiers, materializes a missing Dispatcharr relation only when required, and builds a Dispatcharr-native proxy URL pinned to the selected account and provider stream.
 - `newznab.py`, `recent.py`, `releases.py`, and `probe.py` own search responses, lightweight validation feeds, compatible release naming, and media probing.
 - `sab.py` translates Mustarrd queue/history state into SAB-compatible responses.
 - `mustarrd.py` maintains the shared authenticated Mustarrd client.
-- `tests/test_core.py` covers portable helpers and isolated lifecycle behavior.
+- `tests/test_core.py` covers bridge/helper contracts; `tests/test_lifecycle.py` covers reconciliation and process safety. `tests/isolated_lifecycle_probe.py` is opt-in for disposable network-none copies only.
 
 Data flow:
 
@@ -164,6 +166,11 @@ Behavioral or compatibility changes require applicable live validation:
 - state recovery after Dispatcharr and plugin restart.
 
 ## Known pitfalls
+
+- Host stop callbacks run before or after persistence depending on Dispatcharr path. Treat them as wake hints; never infer committed enable transitions from callbacks, `updated_at`, or remembered intermediate disabled observations.
+- Keep HTTP and lifetime ownership in one process; normal callbacks must never signal a global PID. Parent lease handoff closes its descriptor without `LOCK_UN`. Never replace/unlink the ownership lock inode.
+- Keep original native spawn/wait/thread primitives under gevent, fork-reset watchdog registries, close transient leases in fork children, and close unrelated inheritable descriptors on spawn.
+- Migration from pre-reconciler loaded code requires a clean host restart. Do not claim mixed-generation manual Stop compatibility or instantaneous commit-boundary convergence.
 
 - A GitHub repository redirect does not migrate Dispatcharr's plugin key, saved settings, or persistent state. Follow the one-time migration sequence and validate the new identity before deleting the old one.
 - Existing versions were published as branches rather than tags. Create equivalent immutable tags at the exact branch heads and verify registry resolution before deleting those branches.
