@@ -1033,3 +1033,34 @@ Rebuild the required implementation cleanly from current upstream, run both proj
 - Dependency record: `DEPENDENCIES.md`
 
 ---
+
+## 2026-11-17: Bound concurrent service startup without changing bridge contracts
+
+Dispatcharr 0.34 can construct this plugin concurrently from ordinary discovery and
+its new leadership discovery thread. The previous blocking `flock(LOCK_EX)` can
+stall the same process whose other execution context owns that lock and is waiting
+for the detached service's health check. An isolated copied-data reproduction
+showed that lock cycle; removing Arr Stack eliminated the startup hang.
+
+Keep the existing constructor-based service adapter for Dispatcharr 0.33 support.
+Use nonblocking file-lock acquisition, with a process-local deduplicated retry
+bounded to 30 seconds when startup ownership is busy. Timeouts and failures are
+logged rather than silently skipping startup. Do not invent an `on_start` hook or
+claim migration to Dispatcharr 0.34's leader-service lifecycle.
+
+A separate atomic control record fences attempts by request epoch. Disable and
+explicit Stop prevent old queued/in-flight starts from resurrecting the service;
+a changed enabled configuration or explicit Restart permits a new attempt.
+Reload/shutdown fence older attempts while allowing subsequent discovery. Stop and
+restart share startup's operation lock; failed process termination refuses a
+replacement. Reads must not close the caller's transactional Django connection.
+The private retry thread closes only its own connections on exit.
+
+This bounded compatibility fix preserves endpoint, settings, API-key, state path,
+provider, download and LineupARR contracts. It is not a replacement for a future
+host-managed lifecycle design, distributed fencing, or an indefinite supervisor.
+The legacy constructor still performs a bounded initial startup health wait.
+
+Local development remains untagged at version 0.2.0. A separately authorized
+publication must select a new version and satisfy release/registry gates; this
+work does not mutate the released 0.2.0 artifact or the live installation.

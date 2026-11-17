@@ -1,4 +1,8 @@
 import fcntl
+import errno
+import threading
+import types
+from contextlib import contextmanager
 import json
 import logging
 import os
@@ -19,9 +23,11 @@ STATE_DIR = Path(os.environ.get("ARR_STACK_CONNECTOR_STATE_DIR") or "/data/arr_s
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 PID_FILE = STATE_DIR / ".servarr_service.pid"
 LOCK_FILE = STATE_DIR / ".servarr_service.lock"
+CONTROL_FILE = STATE_DIR / ".servarr_service.control.json"
 LOG_FILE = STATE_DIR / "servarr_service.log"
 BOOTSTRAP_LOG_FILE = STATE_DIR / "servarr_service_bootstrap.log"
 SERVICE_SCRIPT = (ROOT / "service.py").resolve()
+_UNSET = object()
 
 
 class _PluginLogAdapter(logging.LoggerAdapter):
@@ -117,11 +123,119 @@ class Plugin:
         if os.environ.get("ARR_STACK_CONNECTOR_SERVICE", "").lower() in {"1", "true", "yes"}:
             return
         try:
-            self._ensure_service()
+            epoch = self._control().get("epoch")
+            if not self._ensure_service(epoch):
+                self._queue_retry(epoch)
         except Exception:
             log.exception(
                 "Detached Newznab/SAB service failed to start; plugin remains loaded for diagnostics"
             )
+
+    @staticmethod
+    def _native(name):
+        primitive = getattr(threading, name)
+        try:
+            import gevent.monkey
+            if gevent.monkey.is_module_patched("threading"):
+                return gevent.monkey.get_original("threading", name)
+        except ImportError:
+            pass
+        return primitive
+
+    def _control(self):
+        try:
+            return json.loads(CONTROL_FILE.read_text())
+        except FileNotFoundError:
+            return {}
+
+    def _configuration(self):
+        # Read only lifecycle identity, never credentials. A disable transaction
+        # may still be uncommitted in another worker, so the stop marker also
+        # fences starts against its observed configuration revision.
+        from apps.plugins.models import PluginConfig
+        cfg = PluginConfig.objects.filter(key=PLUGIN_KEY).values("enabled", "updated_at").first()
+        return (bool(cfg and cfg["enabled"]), str(cfg["updated_at"]) if cfg else "")
+
+    def _may_start(self, epoch):
+        control = self._control()
+        if control.get("epoch") != epoch:
+            return False
+        enabled, revision = self._configuration()
+        return enabled and not (control.get("stopped") and control.get("revision") == revision)
+
+    def _request(self, stopped):
+        _, revision = self._configuration()
+        control = {"epoch": secrets.token_hex(16), "stopped": stopped, "revision": revision}
+        temporary = CONTROL_FILE.with_name(CONTROL_FILE.name + "." + control["epoch"])
+        try:
+            with temporary.open("x") as out:
+                os.chmod(temporary, 0o600)
+                json.dump(control, out)
+            os.replace(temporary, CONTROL_FILE)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return control["epoch"]
+
+    @contextmanager
+    def _operation_lock(self, timeout=0):
+        # Never block in flock: another constructor can run in the same gevent
+        # process while the owner is waiting for its local HTTP health check.
+        with LOCK_FILE.open("a+") as handle:
+            deadline = time.monotonic() + timeout
+            acquired = False
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EACCES, errno.EAGAIN):
+                        raise
+                    if time.monotonic() >= deadline:
+                        break
+                    time.sleep(0.05)
+            try:
+                yield acquired
+            finally:
+                if acquired:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def _queue_retry(self, epoch):
+        # Plugin modules can be re-imported on reload. Keep only a tiny
+        # process-local retry registry outside those module identities.
+        key = "_arr_stack_start_retries"
+        candidate = types.ModuleType(key)
+        candidate.lock = self._native("RLock")()
+        candidate.jobs = {}
+        state = sys.modules.setdefault(key, candidate)
+        identity = (os.getpid(), str(STATE_DIR))
+        with state.lock:
+            current = state.jobs.get(identity)
+            if current and current[0] == epoch and current[1].is_alive():
+                return
+            def retry():
+                deadline = time.monotonic() + 30
+                try:
+                    while time.monotonic() < deadline:
+                        if not self._may_start(epoch):
+                            return
+                        if self._ensure_service(epoch):
+                            return
+                        time.sleep(0.1)
+                    log.error("Deferred service startup timed out waiting for lifecycle ownership")
+                except Exception:
+                    log.exception("Deferred Newznab/SAB service startup failed")
+                finally:
+                    # Only this private retry thread owns these connections.
+                    # Never close a caller's transactional connection in stop().
+                    try:
+                        from django.db import connections
+                        connections.close_all()
+                    except ImportError:
+                        pass
+            thread = self._native("Thread")(target=retry, daemon=True, name="arr-stack-start-retry")
+            state.jobs[identity] = (epoch, thread)
+            thread.start()
 
     def _desired_version(self):
         return _installed_version() or self.version
@@ -200,22 +314,38 @@ class Plugin:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             return
-        deadline = time.time() + 8
-        while time.time() < deadline:
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
             if not self._pid_is_service(pid):
                 return
             time.sleep(0.2)
         if self._pid_is_service(pid):
-            os.kill(pid, signal.SIGKILL)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                return
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                if not self._pid_is_service(pid):
+                    return
+                time.sleep(0.05)
+            raise RuntimeError("Service process did not exit; refusing replacement")
 
-    def _stop_service(self):
+    def _stop_service_locked(self):
         pid = self._service_pid()
         if pid:
             self._stop_pid(pid)
-        try:
-            PID_FILE.unlink(missing_ok=True)
-        except Exception:
-            pass
+        PID_FILE.unlink(missing_ok=True)
+
+    def _stop_service(self, replacement=False):
+        epoch = self._request(stopped=not replacement)
+        with self._operation_lock(timeout=15) as acquired:
+            if not acquired:
+                raise RuntimeError("Service stop timed out waiting for lifecycle ownership")
+            if self._control().get("epoch") == epoch:
+                self._stop_service_locked()
+                return True
+            return False
 
     def _start_service(self):
         interpreter = self._interpreter()
@@ -245,36 +375,45 @@ class Plugin:
         PID_FILE.write_text(str(process.pid))
         return process.pid
 
-    def _ensure_service(self):
-        with LOCK_FILE.open("a+") as lock_handle:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-            desired_version = self._desired_version()
-            pid = self._service_pid()
-            health = self._health() if pid else None
-            running_version = str((health or {}).get("version") or "")
+    def _ensure_service(self, epoch=_UNSET):
+        if epoch is _UNSET:
+            epoch = self._control().get("epoch")
+        if not self._may_start(epoch):
+            return True  # Cancelled or disabled; no pending startup remains.
+        with self._operation_lock() as acquired:
+            if not acquired:
+                return False
+            return self._ensure_service_locked(epoch)
 
-            if pid and health and running_version == desired_version:
-                return
-
-            if pid:
-                if health:
-                    log.info(
-                        "Replacing stale detached service pid=%s running=%s installed=%s",
-                        pid,
-                        running_version or "unknown",
-                        desired_version,
-                    )
-                self._stop_pid(pid)
+    def _ensure_service_locked(self, epoch):
+        if not self._may_start(epoch):
+            return True
+        desired_version = self._desired_version()
+        pid = self._service_pid()
+        health = self._health() if pid else None
+        running_version = str((health or {}).get("version") or "")
+        if pid and health and running_version == desired_version:
+            return True
+        if pid:
+            self._stop_pid(pid)
+            PID_FILE.unlink(missing_ok=True)
+        if not self._may_start(epoch):
+            return True
+        child = self._start_service()
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            if not self._may_start(epoch):
+                self._stop_pid(child)
                 PID_FILE.unlink(missing_ok=True)
-
-            self._start_service()
-            deadline = time.time() + 12
-            while time.time() < deadline:
-                health = self._health()
-                if health and str(health.get("version") or "") == desired_version:
-                    return
-                time.sleep(0.25)
-            raise RuntimeError("Detached Newznab/SAB service failed health check after startup")
+                return True
+            health = self._health()
+            if health and str(health.get("version") or "") == desired_version:
+                return True
+            time.sleep(0.25)
+        # Don't strand a half-started child after the winning attempt fails.
+        self._stop_pid(child)
+        PID_FILE.unlink(missing_ok=True)
+        raise RuntimeError("Detached Newznab/SAB service failed health check after startup")
 
     def run(self, action_id, params=None, context=None):
         if action_id == "status":
@@ -289,13 +428,23 @@ class Plugin:
                 "bootstrap_log_file": str(BOOTSTRAP_LOG_FILE),
             }
         if action_id == "restart":
-            self._stop_service()
-            self._ensure_service()
-            return {"status": True, "message": "Service restarted", "service": self._health() or {}}
+            epoch = self._request(stopped=False)
+            with self._operation_lock(timeout=15) as acquired:
+                if not acquired:
+                    raise RuntimeError("Service restart timed out waiting for lifecycle ownership")
+                if self._control().get("epoch") != epoch:
+                    return {"status": False, "message": "Restart superseded by a newer lifecycle request"}
+                self._stop_service_locked()
+                self._ensure_service_locked(epoch)
+            health = self._health()
+            return {"status": bool(health), "message": "Service restart completed", "service": health or {}}
         if action_id == "stop":
-            self._stop_service()
-            return {"status": True, "message": "Service stopped"}
+            stopped = self._stop_service()
+            return {"status": stopped, "message": "Service stopped" if stopped else "Stop superseded by a newer lifecycle request"}
         raise ValueError(f"Unknown action: {action_id}")
 
     def stop(self, context=None):
-        self._stop_service()
+        # One request fences old retries. Reload permits the loader's subsequent
+        # replacement; disable remains stopped until configuration changes
+        # or an explicit Restart. Never overwrite a newer command after teardown.
+        self._stop_service(replacement=(context or {}).get("reason") in {"reload", "shutdown"})
