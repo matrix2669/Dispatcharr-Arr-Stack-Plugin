@@ -1090,3 +1090,7 @@ project's contracts and resolve contradictions before recording the new revision
 Promotion, release, and the project's independent approval and validation gates
 remain separate; reconciling standards does not authorize those actions.
 The clarification supersedes the earlier uncertainty over when to reconcile.
+
+## 2026-11-17: Dispatcharr 0.34 fresh-install identity
+
+Actual official-installer validation established that 0.34 preserves hyphens in a fresh `arr-stack-connector` install. Earlier versions used `arr_stack_connector`; managed updates retain the existing key. The plugin derives its database identity from the installed directory and retains the same persistent state root. Do not force a rename or create a duplicate configuration during upgrade. This qualifies the historical one-time rename guidance; source slug and settings IDs remain unchanged.

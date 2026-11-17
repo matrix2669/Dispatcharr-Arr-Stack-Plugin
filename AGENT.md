@@ -94,7 +94,7 @@ The public project name is **Dispatcharr Arr Stack Plugin** and the in-Dispatcha
 The rename intentionally changes the public plugin identity:
 
 - registry slug and source archive directory: `arr-stack-connector`;
-- normalized installed directory/key: `arr_stack_connector`;
+- installed directory/key: historical `arr_stack_connector`; Dispatcharr 0.34 fresh installs preserve `arr-stack-connector`, while managed updates retain the existing key;
 - state root: `/data/arr_stack_connector`;
 - plugin-owned environment variables: `ARR_STACK_CONNECTOR_*`.
 

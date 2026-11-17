@@ -7,7 +7,7 @@
 - Use `MAJOR.MINOR.PATCH-beta.N` for test tags and increment `N` for every published beta of the same target version.
 - Use a normal `MAJOR.MINOR.PATCH` tag when feature or fix work is complete.
 - Never move a published tag, replace an advertised archive, or mutate an existing Release. Corrections receive a new version.
-- Keep the registry slug and source archive directory `arr-stack-connector` synchronized with the normalized Dispatcharr installation key `arr_stack_connector`.
+- Keep the registry slug and source archive directory `arr-stack-connector` synchronized with the host-selected installation key: historical `arr_stack_connector`, or `arr-stack-connector` on fresh 0.34 installs. Managed updates retain the existing key.
 
 ## Required validation
 
@@ -22,7 +22,7 @@ python3 -m json.tool arr-stack-connector/plugin.json >/dev/null
 Also verify:
 
 - `VERSION`, `Plugin.version`, and `plugin.json` agree;
-- the exact tag archive exposes `arr-stack-connector/plugin.json` beneath the stable source directory and Dispatcharr installs it as `arr_stack_connector`;
+- the exact tag archive exposes `arr-stack-connector/plugin.json` beneath the stable source directory and Dispatcharr uses the expected host-selected key (0.33 `arr_stack_connector`; fresh 0.34 `arr-stack-connector`; existing managed updates retain their key);
 - installation and update preserve saved settings, API key, state files, and the managed service lifecycle;
 - Dispatcharr loads the plugin under the existing normalized key;
 - Sonarr and Radarr validation, interactive search, grab, queue, history, retry, and deletion still work;
