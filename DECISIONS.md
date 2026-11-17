@@ -1094,3 +1094,12 @@ The clarification supersedes the earlier uncertainty over when to reconcile.
 ## 2026-11-17: Dispatcharr 0.34 fresh-install identity
 
 Actual official-installer validation established that 0.34 preserves hyphens in a fresh `arr-stack-connector` install. Earlier versions used `arr_stack_connector`; managed updates retain the existing key. The plugin derives its database identity from the installed directory and retains the same persistent state root. Do not force a rename or create a duplicate configuration during upgrade. This qualifies the historical one-time rename guidance; source slug and settings IDs remain unchanged.
+
+
+## 2026-11-17 — Primary standards and standalone documentation ownership
+
+The owner clarified that workspace is the primary instruction source: check for changes before substantive project work and reconcile updates into the current project. Contradictions must be brought to the owner, then the repository instructions, workspace standards, or both corrected as necessary. This supersedes earlier guidance allowing unchecked pinned standards during ordinary standalone work and any interpretation requiring a workspace-main status checkpoint for every standalone result.
+
+Standalone instructions, decisions, branch records, changelogs and status belong in the owning repository. Workspace documentation synchronization applies only to workspace-owned work and upstream-fork sidecars. Consuming workspace standards does not create workspace ownership of project records. The withdrawn Arr Stack status draft is not part of this correction. Publication, integration, tags, deployment and branch deletion remain subject to their separate authorization and validation gates. Historical decision entries remain as provenance, superseded on these two points.
+
+Independent review cleared the central standards and source-skill ownership correction. The affected standalone project fingerprints are reconciled to that reviewed local standards candidate; this does not assert remote publication or authorize it.

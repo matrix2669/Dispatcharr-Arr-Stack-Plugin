@@ -2,24 +2,18 @@
 
 ## Workspace Standards Reconciliation Gate
 
-The owner clarified on 2026-11-17 that updated workspace standards must be
-reconciled into this plugin. Before substantive work, check the maintained local
-`matrix2669/workspace` checkout with `<workspace>/scripts/reconcile-standards
---check .`; its `AI-INSTRUCTIONS.md`, `AGENT-STANDARD.md`, and Git history must
-be available. This project-specific owner instruction retains the pre-work check
-although the workspace baseline permits ordinary standalone work against a pinned
-revision. Reconciliation is also required at bootstrap, explicit standards work,
-and before promotion or release.
+`matrix2669/workspace` is the primary source of shared instructions. Before substantive work, refresh its maintained local checkout and run `<workspace>/scripts/reconcile-standards --check .`; its `AI-INSTRUCTIONS.md`, `AGENT-STANDARD.md`, and Git history must be available. Reconcile any changed standards into this repository before proceeding. Recheck before promotion or release.
 
 If `WORKSPACE-STANDARDS.yaml` is missing, pending, or stale, stop and run
 `<workspace>/scripts/reconcile-standards --diff .`. Review changed standards
 against this complete `AGENT.md`, `DECISIONS.md`, code/configuration contracts,
 dependencies, `BRANCHES.md`, `RELEASE.md`, upstream requirements where applicable,
-and related projects. Resolve contradictions with the owner; record any decision
-supersession and realign affected artifacts. Only after review finds no unresolved
+and related projects. Resolve contradictions with the owner and correct the repository instructions,
+workspace standards, or both as necessary; record any decision supersession and
+realign affected artifacts. Only after review finds no unresolved
 contradiction, run `<workspace>/scripts/reconcile-standards --apply
 --confirm-reviewed-no-conflicts .`. Missing authoritative standards or Git history
-blocks this project-specific check and required promotion boundaries. An exception
+blocks the required pre-work check and promotion boundaries. An exception
 requires explicit owner authorization, exact scope, rationale, approval date, and
 review/removal trigger in this file; `DECISIONS.md` cannot waive standards.
 
@@ -105,6 +99,8 @@ This is a one-time manual migration for existing installations. Disable the old 
 The canonical GitHub repository is `matrix2669/Dispatcharr-Arr-Stack-Plugin`. Preserve the old GitHub URL redirect and verify every historical archive before changing or deleting legacy references.
 
 ## Development workflow
+
+Project instructions, decisions, branch records, changelogs and status records belong in this standalone repository. Standards reconciliation does not require a separate workspace status document or workspace-main closeout.
 
 This is a standalone Dispatcharr plugin:
 
