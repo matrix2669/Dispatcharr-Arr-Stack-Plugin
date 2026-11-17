@@ -3,6 +3,7 @@ import errno
 import threading
 import types
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -156,31 +157,50 @@ class Plugin:
         cfg = PluginConfig.objects.filter(key=PLUGIN_KEY).values("enabled", "updated_at").first()
         return (bool(cfg and cfg["enabled"]), str(cfg["updated_at"]) if cfg else "")
 
+    def _enabled_after_disable(self, control):
+        enabled, revision = self._configuration()
+        if not enabled:
+            return False
+        barrier = control.get("disabled_before")
+        return not barrier or datetime.fromisoformat(revision) > datetime.fromisoformat(barrier)
+
     def _may_start(self, epoch):
         control = self._control()
-        if control.get("epoch") != epoch:
-            return False
-        enabled, revision = self._configuration()
-        return enabled and not (control.get("stopped") and control.get("revision") == revision)
+        return (control.get("epoch") == epoch and not control.get("stopped")
+                and self._enabled_after_disable(control))
 
-    def _request(self, stopped):
-        _, revision = self._configuration()
-        control = {"epoch": secrets.token_hex(16), "stopped": stopped, "revision": revision}
-        temporary = CONTROL_FILE.with_name(CONTROL_FILE.name + "." + control["epoch"])
-        try:
-            with temporary.open("x") as out:
-                os.chmod(temporary, 0o600)
-                json.dump(control, out)
-            os.replace(temporary, CONTROL_FILE)
-        finally:
-            temporary.unlink(missing_ok=True)
-        return control["epoch"]
+    def _request(self, stopped=None, disable=False):
+        # Serialize read/modify/write independently of service startup. Restart
+        # may clear an operator Stop, but cannot erase a pending Disable fence.
+        with self._operation_lock(timeout=2, path=CONTROL_FILE.with_suffix(".lock")) as acquired:
+            if not acquired:
+                raise RuntimeError("Lifecycle request timed out updating control state")
+            control = self._control()
+            control["epoch"] = secrets.token_hex(16)
+            if stopped is not None:
+                control["stopped"] = stopped
+            if disable:
+                _, revision = self._configuration()
+                cutoff = datetime.now(timezone.utc)
+                for value in (revision, control.get("disabled_before")):
+                    if value:
+                        cutoff = max(cutoff, datetime.fromisoformat(value))
+                control["disabled_before"] = cutoff.isoformat()
+            temporary = CONTROL_FILE.with_name(CONTROL_FILE.name + "." + control["epoch"])
+            try:
+                with temporary.open("x") as out:
+                    os.chmod(temporary, 0o600)
+                    json.dump(control, out)
+                os.replace(temporary, CONTROL_FILE)
+            finally:
+                temporary.unlink(missing_ok=True)
+            return control["epoch"]
 
     @contextmanager
-    def _operation_lock(self, timeout=0):
+    def _operation_lock(self, timeout=0, path=None):
         # Never block in flock: another constructor can run in the same gevent
         # process while the owner is waiting for its local HTTP health check.
-        with LOCK_FILE.open("a+") as handle:
+        with (path or LOCK_FILE).open("a+") as handle:
             deadline = time.monotonic() + timeout
             acquired = False
             while True:
@@ -337,12 +357,13 @@ class Plugin:
             self._stop_pid(pid)
         PID_FILE.unlink(missing_ok=True)
 
-    def _stop_service(self, replacement=False):
-        epoch = self._request(stopped=not replacement)
+    def _stop_service(self, replacement=False, disable=False):
+        epoch = self._request(stopped=None if replacement or disable else True, disable=disable)
         with self._operation_lock(timeout=15) as acquired:
             if not acquired:
                 raise RuntimeError("Service stop timed out waiting for lifecycle ownership")
-            if self._control().get("epoch") == epoch:
+            control = self._control()
+            if control.get("epoch") == epoch or (disable and not self._enabled_after_disable(control)):
                 self._stop_service_locked()
                 return True
             return False
@@ -444,7 +465,8 @@ class Plugin:
         raise ValueError(f"Unknown action: {action_id}")
 
     def stop(self, context=None):
-        # One request fences old retries. Reload permits the loader's subsequent
-        # replacement; disable remains stopped until configuration changes
-        # or an explicit Restart. Never overwrite a newer command after teardown.
-        self._stop_service(replacement=(context or {}).get("reason") in {"reload", "shutdown"})
+        reason = (context or {}).get("reason")
+        self._stop_service(
+            replacement=reason in {"reload", "shutdown"},
+            disable=reason in {"disable", "delete", "capability_update_denied"},
+        )

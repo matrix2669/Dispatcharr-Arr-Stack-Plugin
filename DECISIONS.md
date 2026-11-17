@@ -1048,10 +1048,15 @@ bounded to 30 seconds when startup ownership is busy. Timeouts and failures are
 logged rather than silently skipping startup. Do not invent an `on_start` hook or
 claim migration to Dispatcharr 0.34's leader-service lifecycle.
 
-A separate atomic control record fences attempts by request epoch. Disable and
-explicit Stop prevent old queued/in-flight starts from resurrecting the service;
-a changed enabled configuration or explicit Restart permits a new attempt.
-Reload/shutdown fence older attempts while allowing subsequent discovery. Stop and
+A separately locked atomic control record fences attempts by request epoch.
+Explicit Stop is a persistent latch, cleared only by explicit Restart; ordinary
+reload, shutdown and configuration changes preserve it. Disable records a separate
+configuration-time barrier that Restart cannot clear, including while another
+connection still sees the old enabled row before the disable transaction commits.
+Only a later enabled configuration can pass that barrier. Reload/shutdown fence
+older attempts without clearing either inhibition. A superseded Disable still
+stops the service while its barrier applies. Interrupted/rolled-back Disable is
+fail-closed until a later enable update, rather than risking resurrection. Stop and
 restart share startup's operation lock; failed process termination refuses a
 replacement. Reads must not close the caller's transactional Django connection.
 The private retry thread closes only its own connections on exit.

@@ -56,14 +56,14 @@ class LifecycleTests(unittest.TestCase):
             state = sys.modules["_arr_stack_start_retries"]
             state.jobs[(os.getpid(), str(self.module.STATE_DIR))][1].join(2)
 
-    def test_stop_fences_a_queued_start_and_requires_new_config_or_restart(self):
+    def test_stop_fences_a_queued_start_and_requires_explicit_restart(self):
         epoch = self.instance._request(True)
         self.assertFalse(self.instance._may_start(None))
         self.assertFalse(self.instance._may_start(epoch))
         with patch.object(self.module.Plugin, "_configuration", return_value=(False, "revision-2")):
             self.assertFalse(self.instance._may_start(epoch))
         with patch.object(self.module.Plugin, "_configuration", return_value=(True, "revision-3")):
-            self.assertTrue(self.instance._may_start(epoch))
+            self.assertFalse(self.instance._may_start(epoch))
         new_epoch = self.instance._request(False)
         self.assertTrue(self.instance._may_start(new_epoch))
         self.assertFalse(self.instance._may_start(epoch))
@@ -162,3 +162,38 @@ class LifecycleTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'still running'):
                 self.instance._ensure_service()
             start.assert_not_called()
+
+    def test_manual_stop_survives_reload_shutdown_and_configuration_changes(self):
+        with patch.object(self.instance, "_stop_service_locked"):
+            self.instance.run("stop")
+            for reason in ("reload", "shutdown"):
+                self.instance.stop({"reason": reason})
+                self.assertTrue(self.instance._control()["stopped"])
+                self.assertFalse(self.instance._may_start(self.instance._control()["epoch"]))
+        with patch.object(self.instance, "_configuration", return_value=(True, "changed")):
+            self.assertFalse(self.instance._may_start(self.instance._control()["epoch"]))
+
+    def test_restart_cannot_clear_disable_barrier_while_db_still_looks_enabled(self):
+        old = "2020-01-01 00:00:00+00:00"
+        with patch.object(self.instance, "_configuration", return_value=(True, old)),              patch.object(self.instance, "_stop_service_locked"),              patch.object(self.instance, "_start_service") as start,              patch.object(self.instance, "_health", return_value=None):
+            self.instance.stop({"reason": "disable"})
+            barrier = self.instance._control()["disabled_before"]
+            self.assertFalse(self.instance.run("restart")["status"])
+            self.assertEqual(self.instance._control()["disabled_before"], barrier)
+            start.assert_not_called()
+        with patch.object(self.instance, "_configuration", return_value=(False, barrier)):
+            self.assertFalse(self.instance._may_start(self.instance._control()["epoch"]))
+        with patch.object(self.instance, "_configuration", return_value=(True, "2999-01-01 00:00:00+00:00")):
+            self.assertTrue(self.instance._may_start(self.instance._control()["epoch"]))
+
+    def test_superseded_disable_still_stops_service_with_uncommitted_db_state(self):
+        original = self.instance._request
+        def request(*args, **kwargs):
+            epoch = original(*args, **kwargs)
+            if kwargs.get("disable"):
+                original(stopped=False)
+            return epoch
+        with patch.object(self.instance, "_configuration", return_value=(True, "2020-01-01 00:00:00+00:00")),              patch.object(self.instance, "_request", side_effect=request),              patch.object(self.instance, "_stop_service_locked") as stop:
+            self.instance.stop({"reason": "disable"})
+            stop.assert_called_once()
+            self.assertFalse(self.instance._may_start(self.instance._control()["epoch"]))

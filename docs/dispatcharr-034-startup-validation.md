@@ -43,14 +43,17 @@ Image identities:
 Portable automated regressions cover same-process lock contention, deferred retry,
 request cancellation, restart serialization, persistent Stop, disabled discovery,
 reload/shutdown fencing, superseded commands, malformed control, lock errors and
-termination failure. The complete suite has 45 passing tests, including the
+termination failure. The complete suite has 48 passing tests, including the
 existing 28 bridge/helper tests. Python compilation, manifest parsing, version
 agreement, whitespace and source archive layout are checked locally.
 
 Isolated all-plugin copies start on both versions with HTTP 200, exactly one
-Arr Stack service process, and a healthy service endpoint. The runtime lifecycle
-probe exercises explicit Stop, constructor-after-Stop, Restart, transactional
-Disable, re-enable, and reload. Detailed private diagnostic logs are retained
+Arr Stack service process, and a healthy service endpoint. The committed opt-in `tests/isolated_lifecycle_probe.py` additionally checks
+persistent Stop across reload/shutdown and uses two real PostgreSQL connections:
+one pauses a row-locked disable transaction after stop and before the enabled
+update; the other confirms a stale enabled read, requests Restart, and verifies
+no service resurrection before or after commit. Re-enable and running-service
+reload must then succeed. The probe refuses non-isolated environments. Detailed private diagnostic logs are retained
 outside the repository; no database dumps or account configuration are committed.
 
 No remote CI, publication, registry update, production upgrade, or live deployment
