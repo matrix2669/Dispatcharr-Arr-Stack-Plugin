@@ -1051,12 +1051,15 @@ claim migration to Dispatcharr 0.34's leader-service lifecycle.
 A separately locked atomic control record fences attempts by request epoch.
 Explicit Stop is a persistent latch, cleared only by explicit Restart; ordinary
 reload, shutdown and configuration changes preserve it. Disable records a separate
-configuration-time barrier that Restart cannot clear, including while another
+committed-state barrier that Restart cannot clear, including while another
 connection still sees the old enabled row before the disable transaction commits.
-Only a later enabled configuration can pass that barrier. Reload/shutdown fence
-older attempts without clearing either inhibition. A superseded Disable still
-stops the service while its barrier applies. Interrupted/rolled-back Disable is
-fail-closed until a later enable update, rather than risking resurrection. Stop and
+An on-commit callback must observe disabled state before a later enabled value can
+pass the barrier. A disabled read inside a transaction cannot arm the barrier
+until commit; rollback discards that callback. `updated_at` is never evidence of
+an enable transition. Reload/shutdown preserve both inhibitions. A superseded
+Disable still stops the service while its barrier applies. Interrupted/rolled-back
+Disable stays fail-closed through unrelated settings/metadata writes; recovery
+requires a genuinely committed disable followed by enable. Stop and
 restart share startup's operation lock; failed process termination refuses a
 replacement. Reads must not close the caller's transactional Django connection.
 The private retry thread closes only its own connections on exit.

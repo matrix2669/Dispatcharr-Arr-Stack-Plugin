@@ -3,7 +3,6 @@ import errno
 import threading
 import types
 from contextlib import contextmanager
-from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -150,19 +149,41 @@ class Plugin:
             return {}
 
     def _configuration(self):
-        # Read only lifecycle identity, never credentials. A disable transaction
-        # may still be uncommitted in another worker, so the stop marker also
-        # fences starts against its observed configuration revision.
+        # Read only lifecycle state, never credentials. Revision is not evidence
+        # of an enable transition: settings and metadata change it as well.
         from apps.plugins.models import PluginConfig
         cfg = PluginConfig.objects.filter(key=PLUGIN_KEY).values("enabled", "updated_at").first()
         return (bool(cfg and cfg["enabled"]), str(cfg["updated_at"]) if cfg else "")
 
+    @staticmethod
+    def _after_commit(callback):
+        from django.db import transaction
+        transaction.on_commit(callback)
+
+    def _confirm_disabled(self, token):
+        # Called only after the reader's transaction commits. An uncommitted
+        # false value must never arm the barrier if that transaction rolls back.
+        enabled, _ = self._configuration()
+        if enabled:
+            return
+        with self._operation_lock(timeout=2, path=CONTROL_FILE.with_suffix(".lock")) as acquired:
+            if not acquired:
+                raise RuntimeError("Unable to confirm committed disabled state")
+            control = self._control()
+            if control.get("disable_token") == token:
+                control["disabled_observed"] = True
+                self._write_control(control)
+
     def _enabled_after_disable(self, control):
-        enabled, revision = self._configuration()
+        enabled, _ = self._configuration()
+        token = control.get("disable_token")
         if not enabled:
+            if token and not control.get("disabled_observed"):
+                self._after_commit(lambda: self._confirm_disabled(token))
             return False
-        barrier = control.get("disabled_before")
-        return not barrier or datetime.fromisoformat(revision) > datetime.fromisoformat(barrier)
+        # A later enabled value is meaningful only after we actually observed
+        # committed disabled state. updated_at also changes for unrelated edits.
+        return not token or bool(control.get("disabled_observed"))
 
     def _may_start(self, epoch):
         control = self._control()
@@ -180,21 +201,25 @@ class Plugin:
             if stopped is not None:
                 control["stopped"] = stopped
             if disable:
-                _, revision = self._configuration()
-                cutoff = datetime.now(timezone.utc)
-                for value in (revision, control.get("disabled_before")):
-                    if value:
-                        cutoff = max(cutoff, datetime.fromisoformat(value))
-                control["disabled_before"] = cutoff.isoformat()
-            temporary = CONTROL_FILE.with_name(CONTROL_FILE.name + "." + control["epoch"])
-            try:
-                with temporary.open("x") as out:
-                    os.chmod(temporary, 0o600)
-                    json.dump(control, out)
-                os.replace(temporary, CONTROL_FILE)
-            finally:
-                temporary.unlink(missing_ok=True)
-            return control["epoch"]
+                control["disable_token"] = secrets.token_hex(16)
+                control["disabled_observed"] = False
+            self._write_control(control)
+            epoch = control["epoch"]
+            token = control.get("disable_token")
+        if disable:
+            self._after_commit(lambda: self._confirm_disabled(token))
+        return epoch
+
+    def _write_control(self, control):
+        # Caller holds the control-file lock; service-operation lock is separate.
+        temporary = CONTROL_FILE.with_name(CONTROL_FILE.name + "." + secrets.token_hex(16))
+        try:
+            with temporary.open("x") as out:
+                os.chmod(temporary, 0o600)
+                json.dump(control, out)
+            os.replace(temporary, CONTROL_FILE)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     @contextmanager
     def _operation_lock(self, timeout=0, path=None):

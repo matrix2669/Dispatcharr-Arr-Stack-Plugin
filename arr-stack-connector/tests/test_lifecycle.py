@@ -24,9 +24,12 @@ class LifecycleTests(unittest.TestCase):
             item.start()
         self.cfg = patch.object(self.module.Plugin, "_configuration", return_value=(True, "revision-1"))
         self.cfg.start()
+        self.commit = patch.object(self.module.Plugin, "_after_commit", side_effect=lambda callback: callback())
+        self.commit.start()
         self.instance = self.module.Plugin.__new__(self.module.Plugin)
 
     def tearDown(self):
+        self.commit.stop()
         self.cfg.stop()
         for item in reversed(self.patches):
             item.stop()
@@ -177,11 +180,11 @@ class LifecycleTests(unittest.TestCase):
         old = "2020-01-01 00:00:00+00:00"
         with patch.object(self.instance, "_configuration", return_value=(True, old)),              patch.object(self.instance, "_stop_service_locked"),              patch.object(self.instance, "_start_service") as start,              patch.object(self.instance, "_health", return_value=None):
             self.instance.stop({"reason": "disable"})
-            barrier = self.instance._control()["disabled_before"]
+            barrier = self.instance._control()["disable_token"]
             self.assertFalse(self.instance.run("restart")["status"])
-            self.assertEqual(self.instance._control()["disabled_before"], barrier)
+            self.assertEqual(self.instance._control()["disable_token"], barrier)
             start.assert_not_called()
-        with patch.object(self.instance, "_configuration", return_value=(False, barrier)):
+        with patch.object(self.instance, "_configuration", return_value=(False, "disabled")):
             self.assertFalse(self.instance._may_start(self.instance._control()["epoch"]))
         with patch.object(self.instance, "_configuration", return_value=(True, "2999-01-01 00:00:00+00:00")):
             self.assertTrue(self.instance._may_start(self.instance._control()["epoch"]))
@@ -196,4 +199,26 @@ class LifecycleTests(unittest.TestCase):
         with patch.object(self.instance, "_configuration", return_value=(True, "2020-01-01 00:00:00+00:00")),              patch.object(self.instance, "_request", side_effect=request),              patch.object(self.instance, "_stop_service_locked") as stop:
             self.instance.stop({"reason": "disable"})
             stop.assert_called_once()
+            self.assertFalse(self.instance._may_start(self.instance._control()["epoch"]))
+
+    def test_rolled_back_disable_cannot_be_cleared_by_unrelated_updates(self):
+        callbacks = []
+        with patch.object(self.instance, "_after_commit", side_effect=callbacks.append),              patch.object(self.instance, "_stop_service_locked"):
+            self.instance.stop({"reason": "disable"})
+        self.assertEqual(len(callbacks), 1)
+        callbacks.clear()  # transaction rollback discards on_commit callbacks
+        for revision in ("metadata-changed", "settings-changed"):
+            with patch.object(self.instance, "_configuration", return_value=(True, revision)):
+                epoch = self.instance._request(stopped=False)
+                self.assertFalse(self.instance._may_start(epoch))
+        self.assertFalse(self.instance._control()["disabled_observed"])
+
+    def test_uncommitted_disabled_read_does_not_arm_barrier_on_rollback(self):
+        self.instance._request(disable=True)
+        callbacks = []
+        with patch.object(self.instance, "_configuration", return_value=(False, "uncommitted")),              patch.object(self.instance, "_after_commit", side_effect=callbacks.append):
+            self.assertFalse(self.instance._may_start(self.instance._control()["epoch"]))
+        self.assertEqual(len(callbacks), 1)
+        callbacks.clear()
+        with patch.object(self.instance, "_configuration", return_value=(True, "newer-metadata")):
             self.assertFalse(self.instance._may_start(self.instance._control()["epoch"]))

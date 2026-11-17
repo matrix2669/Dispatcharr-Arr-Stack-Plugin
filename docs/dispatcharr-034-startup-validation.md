@@ -43,7 +43,7 @@ Image identities:
 Portable automated regressions cover same-process lock contention, deferred retry,
 request cancellation, restart serialization, persistent Stop, disabled discovery,
 reload/shutdown fencing, superseded commands, malformed control, lock errors and
-termination failure. The complete suite has 48 passing tests, including the
+termination failure. The complete suite has 50 passing tests, including the
 existing 28 bridge/helper tests. Python compilation, manifest parsing, version
 agreement, whitespace and source archive layout are checked locally.
 
@@ -53,7 +53,9 @@ persistent Stop across reload/shutdown and uses two real PostgreSQL connections:
 one pauses a row-locked disable transaction after stop and before the enabled
 update; the other confirms a stale enabled read, requests Restart, and verifies
 no service resurrection before or after commit. Re-enable and running-service
-reload must then succeed. The probe refuses non-isolated environments. Detailed private diagnostic logs are retained
+reload must then succeed. The probe also rolls back Disable, writes unrelated metadata and settings, and
+verifies Restart remains inhibited until an actual committed disable/enable.
+The probe refuses non-isolated environments. Detailed private diagnostic logs are retained
 outside the repository; no database dumps or account configuration are committed.
 
 No remote CI, publication, registry update, production upgrade, or live deployment

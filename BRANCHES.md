@@ -45,5 +45,5 @@ This ledger records why every current branch exists. GitHub remains authoritativ
 - Scope: constructor/lifecycle behavior, singleton service ownership, stop/reload safety, automated regression tests and isolated runtime checks.
 - Authorization: implement/test locally; no push, integration, registry publication, release or deployment in this task.
 - Status: implemented locally, awaiting independent review; production remains pinned to 0.33.0.
-- Validation: 48 automated tests; isolated 0.33/0.34 startup and lifecycle checks. See `docs/dispatcharr-034-startup-validation.md` for evidence and limitations. No remote CI or deployment.
+- Validation: 50 automated tests; isolated 0.33/0.34 startup and lifecycle checks. See `docs/dispatcharr-034-startup-validation.md` for evidence and limitations. No remote CI or deployment.
 - Last verified: 2026-11-17.

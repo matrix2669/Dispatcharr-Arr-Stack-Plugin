@@ -39,6 +39,39 @@ def main():
         assert not plugin._health(), "persistent Stop lost on " + reason
     assert plugin.run("restart")["status"], "explicit Restart failed"
 
+    class RollbackProbe(Exception):
+        pass
+
+    try:
+        with transaction.atomic():
+            cfg = PluginConfig.objects.select_for_update().get(key="arr_stack_connector")
+            plugin.stop({"reason": "disable"})
+            cfg.enabled = False
+            cfg.save(update_fields=["enabled", "updated_at"])
+            raise RollbackProbe()
+    except RollbackProbe:
+        pass
+    cfg = PluginConfig.objects.get(key="arr_stack_connector")
+    assert cfg.enabled, "Disable rollback did not preserve enabled state"
+    cfg.name += " [isolated metadata probe]"
+    cfg.save(update_fields=["name", "updated_at"])
+    assert not plugin.run("restart")["status"], "Metadata update bypassed rolled-back Disable"
+    cfg.settings = dict(cfg.settings or {}, _isolated_lifecycle_probe=True)
+    cfg.save(update_fields=["settings", "updated_at"])
+    module.Plugin()
+    assert not plugin.run("restart")["status"], "Settings update bypassed rolled-back Disable"
+    assert not plugin._health()
+    # Recovery requires an actual committed disabled state followed by enable.
+    with transaction.atomic():
+        cfg = PluginConfig.objects.select_for_update().get(key="arr_stack_connector")
+        plugin.stop({"reason": "disable"})
+        cfg.enabled = False
+        cfg.save(update_fields=["enabled", "updated_at"])
+    cfg.enabled = True
+    cfg.save(update_fields=["enabled", "updated_at"])
+    module.Plugin()
+    assert plugin._health(), "Committed disable/enable did not recover"
+
     pending = threading.Event()
     commit = threading.Event()
     errors = []
@@ -90,7 +123,7 @@ def main():
     plugin.stop({"reason": "reload"})
     module.Plugin()
     assert plugin._health(), "Running service reload failed"
-    print("LIFECYCLE_PASS persistent-stop/restart/concurrent-transaction-disable/reenable/reload")
+    print("LIFECYCLE_PASS persistent-stop/rollback-unrelated-updates/concurrent-transaction-disable/reenable/reload")
 
 
 if __name__ == "__main__":
