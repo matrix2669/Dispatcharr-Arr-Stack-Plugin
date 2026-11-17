@@ -216,7 +216,14 @@ def ensure_watchdog(root, state_dir, interpreter, env):
         registry.jobs[key] = job
         def run():
             try:
-                while not job["stop"] and (Path(root) / "service.py").is_file():
+                while True:
+                    # Retire atomically with constructor deduplication. Once the
+                    # missing source has been observed, a reinstall must start a
+                    # successor even before this thread has returned.
+                    with registry.lock:
+                        if job["stop"] or not (Path(root) / "service.py").is_file():
+                            job["alive"] = False
+                            break
                     for pid in tuple(job["children"]):
                         try:
                             waited, _ = native("os", "waitpid")(pid, os.WNOHANG)
@@ -265,7 +272,8 @@ def ensure_watchdog(root, state_dir, interpreter, env):
                         log.exception("[Arr Stack Connector] Service owner unavailable; watchdog will retry automatically")
                     native("time", "sleep")(1)
             finally:
-                job["alive"] = False
+                with registry.lock:
+                    job["alive"] = False
         native("_thread", "start_new_thread")(run, ())
         return job
 

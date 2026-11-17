@@ -1,29 +1,136 @@
 {
   "name": "Arr Stack Connector",
-  "version": "0.2.0",
+  "version": "0.2.1-beta.1",
   "description": "Connect the Arr stack to raw Dispatcharr VOD providers through Newznab and a SABnzbd-compatible download client backed by Mustarrd.",
   "author": "matrix2669",
   "fields": [
-    {"id":"listen_host","label":"Listen Address","type":"string","default":"0.0.0.0"},
-    {"id":"listen_port","label":"Listen Port","type":"number","default":9192},
-    {"id":"api_key","label":"Newznab / SAB API Key","type":"string","default":"","help_text":"Generated automatically when the plugin service starts with a blank value. To rotate the key, clear this field, Save, then disable and re-enable the plugin."},
-    {"id":"dispatcharr_url","label":"Dispatcharr URL Seen by Mustarrd","type":"string","default":"","help_text":"Required. Set the exact Dispatcharr base URL that Mustarrd can reach, including scheme and port if needed, for example http://iptv.example.local:9191. VOD downloads are forced through Dispatcharr's native VOD proxy so they appear in Dispatcharr stats."},
-    {"id":"mustarrd_url","label":"Mustarrd URL","type":"string","default":"http://mustarrd:4177"},
-    {"id":"mustarrd_username","label":"Mustarrd Username","type":"string","default":""},
-    {"id":"mustarrd_password","label":"Mustarrd Password","type":"string","input_type":"password","default":""},
-    {"id":"mustarrd_account_id","label":"Mustarrd Account ID","type":"number","default":1,"help_text":"Existing Mustarrd account used for job ownership/concurrency of external VOD jobs."},
-    {"id":"servarr_completed_dir","label":"Completed Directory Seen by Sonarr/Radarr","type":"string","default":"/completed"},
-    {"id":"sonarr_category","label":"Sonarr SAB Category","type":"string","default":"sonarr","help_text":"Completed jobs use mustarrd/<category>/<release>/<release>.<ext>, matching SABnzbd job-folder behavior."},
-    {"id":"radarr_category","label":"Radarr SAB Category","type":"string","default":"radarr","help_text":"Completed jobs use mustarrd/<category>/<release>/<release>.<ext>, matching SABnzbd job-folder behavior."},
-    {"id":"ffprobe_path","label":"ffprobe Path","type":"string","default":"/usr/bin/ffprobe","help_text":"Absolute path or executable name. If an absolute path is unavailable, the plugin falls back to ffprobe found on PATH."},
-    {"id":"probe_timeout","label":"Probe Timeout (seconds)","type":"number","default":20},
-    {"id":"catalog_cache_seconds","label":"Raw Catalog Cache (seconds)","type":"number","default":300},
-    {"id":"max_variants","label":"Maximum Variants per Search","type":"number","default":20},
-    {"id":"respect_enabled_vod_groups","label":"Respect Enabled Dispatcharr VOD Groups","type":"boolean","default":true}
+    {
+      "id": "listen_host",
+      "label": "Listen Address",
+      "type": "string",
+      "default": "0.0.0.0"
+    },
+    {
+      "id": "listen_port",
+      "label": "Listen Port",
+      "type": "number",
+      "default": 9192
+    },
+    {
+      "id": "api_key",
+      "label": "Newznab / SAB API Key",
+      "type": "string",
+      "default": "",
+      "help_text": "Generated automatically when the plugin service starts with a blank value. To rotate the key, clear this field, Save, then disable and re-enable the plugin."
+    },
+    {
+      "id": "dispatcharr_url",
+      "label": "Dispatcharr URL Seen by Mustarrd",
+      "type": "string",
+      "default": "",
+      "help_text": "Required. Set the exact Dispatcharr base URL that Mustarrd can reach, including scheme and port if needed, for example http://iptv.example.local:9191. VOD downloads are forced through Dispatcharr's native VOD proxy so they appear in Dispatcharr stats."
+    },
+    {
+      "id": "mustarrd_url",
+      "label": "Mustarrd URL",
+      "type": "string",
+      "default": "http://mustarrd:4177"
+    },
+    {
+      "id": "mustarrd_username",
+      "label": "Mustarrd Username",
+      "type": "string",
+      "default": ""
+    },
+    {
+      "id": "mustarrd_password",
+      "label": "Mustarrd Password",
+      "type": "string",
+      "input_type": "password",
+      "default": ""
+    },
+    {
+      "id": "mustarrd_account_id",
+      "label": "Mustarrd Account ID",
+      "type": "number",
+      "default": 1,
+      "help_text": "Existing Mustarrd account used for job ownership/concurrency of external VOD jobs."
+    },
+    {
+      "id": "servarr_completed_dir",
+      "label": "Completed Directory Seen by Sonarr/Radarr",
+      "type": "string",
+      "default": "/completed"
+    },
+    {
+      "id": "sonarr_category",
+      "label": "Sonarr SAB Category",
+      "type": "string",
+      "default": "sonarr",
+      "help_text": "Completed jobs use mustarrd/<category>/<release>/<release>.<ext>, matching SABnzbd job-folder behavior."
+    },
+    {
+      "id": "radarr_category",
+      "label": "Radarr SAB Category",
+      "type": "string",
+      "default": "radarr",
+      "help_text": "Completed jobs use mustarrd/<category>/<release>/<release>.<ext>, matching SABnzbd job-folder behavior."
+    },
+    {
+      "id": "ffprobe_path",
+      "label": "ffprobe Path",
+      "type": "string",
+      "default": "/usr/bin/ffprobe",
+      "help_text": "Absolute path or executable name. If an absolute path is unavailable, the plugin falls back to ffprobe found on PATH."
+    },
+    {
+      "id": "probe_timeout",
+      "label": "Probe Timeout (seconds)",
+      "type": "number",
+      "default": 20
+    },
+    {
+      "id": "catalog_cache_seconds",
+      "label": "Raw Catalog Cache (seconds)",
+      "type": "number",
+      "default": 300
+    },
+    {
+      "id": "max_variants",
+      "label": "Maximum Variants per Search",
+      "type": "number",
+      "default": 20
+    },
+    {
+      "id": "respect_enabled_vod_groups",
+      "label": "Respect Enabled Dispatcharr VOD Groups",
+      "type": "boolean",
+      "default": true
+    }
   ],
   "actions": [
-    {"id":"status","label":"Service Status","description":"Show the embedded Newznab/SAB service status and connection information.","button_label":"Check"},
-    {"id":"restart","label":"Restart Service","description":"Clear manual Stop and restart the service when the plugin is enabled.","button_label":"Restart"},
-    {"id":"stop","label":"Stop Service","description":"Stop until Restart is selected. Disabling and re-enabling the plugin does not clear manual Stop.","button_label":"Stop","confirm":{"required":true,"title":"Stop service?","message":"Sonarr and Radarr will be unable to search or download until it is restarted."}}
+    {
+      "id": "status",
+      "label": "Service Status",
+      "description": "Show the embedded Newznab/SAB service status and connection information.",
+      "button_label": "Check"
+    },
+    {
+      "id": "restart",
+      "label": "Restart Service",
+      "description": "Clear manual Stop and restart the service when the plugin is enabled.",
+      "button_label": "Restart"
+    },
+    {
+      "id": "stop",
+      "label": "Stop Service",
+      "description": "Stop until Restart is selected. Disabling and re-enabling the plugin does not clear manual Stop.",
+      "button_label": "Stop",
+      "confirm": {
+        "required": true,
+        "title": "Stop service?",
+        "message": "Sonarr and Radarr will be unable to search or download until it is restarted."
+      }
+    }
   ]
 }

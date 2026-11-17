@@ -220,12 +220,15 @@ class ManagedHTTPServer(ThreadingHTTPServer):
         self.lifecycle_heartbeat = time.monotonic()
 
 
-def create_server():
+def create_server(bind=None):
     """Construct only; the reconciliation owner controls threads and shutdown."""
+    # Startup also initializes a blank API key; an explicit bind must not
+    # skip that side effect or use a second configuration read for its address.
     settings = get_settings()
-    host = str(settings.get("listen_host") or "0.0.0.0")
-    port = int(settings.get("listen_port") or 9192)
-    server = ManagedHTTPServer((host, port), Handler)
+    if bind is None:
+        bind = (str(settings.get("listen_host") or "0.0.0.0"),
+                int(settings.get("listen_port") or 9192))
+    server = ManagedHTTPServer(bind, Handler)
     server.daemon_threads = True
     return server
 

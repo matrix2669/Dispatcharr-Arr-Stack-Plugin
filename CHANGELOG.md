@@ -6,7 +6,18 @@ This file contains release history only. Architectural decisions belong in `DECI
 
 The format follows Keep a Changelog principles where practical.
 
-## [Unreleased]
+## [0.2.1-beta.1] - 2026-11-17
+
+### Fixed
+
+- Prevent concurrent Dispatcharr 0.34 discovery from deadlocking service startup while retaining 0.33 compatibility.
+- Reconcile the listener against committed plugin state, recover owner failures automatically, and preserve manual Stop until explicit Restart.
+- Handle bind-setting changes, source replacement, deletion/reinstall, and watchdog retirement safely; preserve startup API-key initialization.
+
+### Upgrade note
+
+- Perform a clean Dispatcharr restart after installing this first reconciler beta. Mixed old/new loaded plugin instances are not supported.
+- Isolated lifecycle/authentication tests passed on 0.33 and 0.34; real provider and Sonarr/Radarr/Mustarrd download traffic remains a deployment validation step.
 
 ### Changed
 

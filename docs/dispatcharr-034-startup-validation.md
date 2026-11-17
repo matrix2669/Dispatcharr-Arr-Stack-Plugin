@@ -22,7 +22,7 @@ history were rejected and are superseded. They are not the delivered design.
 
 ## Automated coverage
 
-The full suite contains 58 tests. Four process tests require the actual Linux
+The full suite contains 61 tests. Four process tests require the actual Linux
 runtime and are skipped on macOS; the complete suite is run in both supported
 container images using a canonical source directory. Tests cover:
 
@@ -97,3 +97,9 @@ mixed-old/new host update. First deployment requires a clean Dispatcharr restart
 a new version, independent review and normal release/archive/upgrade gates.
 Production remains pinned to 0.33; disposable containers/data/test image are removed
 after validation. Chrome and browser automation are not used.
+
+## Final review and beta candidate, 2026-11-17
+
+Independent review cleared both lifecycle race repairs and API-key initialization. All 61 Linux tests, lifecycle/authentication probes and 380-second health soaks passed on both versions with synthetic and owner-approved host-local copied data. Test containers and snapshots were removed. No production service was changed. Source runtime digest before version-only beta metadata: `4bfd80c71e854eea71e23deb5e9b0e0d421cd994c5da806b27bfcb60043ba5e6`.
+
+Official compatibility refresh: `Dispatcharr/Dispatcharr` v0.34.0 commit `3e322c537f26207bf219aa5b4beaa69d3f5f19a4` and v0.33.0 commit `2fa13a6707bdf0dae87e0c494bcd3ca282cdeb3e`. Refreshed official v0.34 source confirms legacy manifest support, slug normalization to arr_stack_connector, nearest plugin.py archive discovery, atomic directory replacement, existing managed-key/settings retention, minimum-version checking and differing-beta update detection. Enable/disable hooks can execute before commit; settings are transactionally persisted. VOD account/stream selection and unique account/stream relations remain present. The beta keeps legacy manifest fields and minimum v0.29.0 unchanged. No claim is made that unmodified upstream Mustarrd supplies the fork-only dependency.

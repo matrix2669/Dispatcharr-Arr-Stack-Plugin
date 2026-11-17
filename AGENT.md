@@ -2,13 +2,26 @@
 
 ## Workspace Standards Reconciliation Gate
 
-Before any substantive work, locate the maintained local `matrix2669/workspace` checkout and run `<workspace>/scripts/reconcile-standards --check .` from this repository root. The workspace `AI-INSTRUCTIONS.md`, `AGENT-STANDARD.md`, and Git history must be available.
+The owner clarified on 2026-11-17 that updated workspace standards must be
+reconciled into this plugin. Before substantive work, check the maintained local
+`matrix2669/workspace` checkout with `<workspace>/scripts/reconcile-standards
+--check .`; its `AI-INSTRUCTIONS.md`, `AGENT-STANDARD.md`, and Git history must
+be available. This project-specific owner instruction retains the pre-work check
+although the workspace baseline permits ordinary standalone work against a pinned
+revision. Reconciliation is also required at bootstrap, explicit standards work,
+and before promotion or release.
 
-If `WORKSPACE-STANDARDS.yaml` is missing, pending, or stale, stop project work and run `<workspace>/scripts/reconcile-standards --diff .`. Review the standards change against this complete `AGENT.md`, `DECISIONS.md`, code/configuration contracts, dependencies, `BRANCHES.md`, `RELEASE.md`, upstream requirements when applicable, and related projects.
-
-A contradiction blocks work. Ask focused follow-up questions to establish whether the changed standard, proposed work, new answer, or older accepted decision is authoritative; never choose silently. Record project-decision supersessions in `DECISIONS.md` and realign every affected artifact. Only after no contradiction remains, run `<workspace>/scripts/reconcile-standards --apply --confirm-reviewed-no-conflicts .`.
-
-Missing workspace standards or Git history is a hard block. Standards exceptions require explicit user authorization and must be stated in a dedicated section of this file with exact scope, rationale, authority, approval date, and review/removal trigger; `DECISIONS.md` cannot waive workspace standards.
+If `WORKSPACE-STANDARDS.yaml` is missing, pending, or stale, stop and run
+`<workspace>/scripts/reconcile-standards --diff .`. Review changed standards
+against this complete `AGENT.md`, `DECISIONS.md`, code/configuration contracts,
+dependencies, `BRANCHES.md`, `RELEASE.md`, upstream requirements where applicable,
+and related projects. Resolve contradictions with the owner; record any decision
+supersession and realign affected artifacts. Only after review finds no unresolved
+contradiction, run `<workspace>/scripts/reconcile-standards --apply
+--confirm-reviewed-no-conflicts .`. Missing authoritative standards or Git history
+blocks this project-specific check and required promotion boundaries. An exception
+requires explicit owner authorization, exact scope, rationale, approval date, and
+review/removal trigger in this file; `DECISIONS.md` cannot waive standards.
 
 
 ## Purpose

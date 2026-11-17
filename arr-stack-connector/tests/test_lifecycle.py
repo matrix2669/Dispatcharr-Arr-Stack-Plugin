@@ -1,5 +1,8 @@
 """Deterministic reconciliation, ownership and command regressions."""
 import fcntl
+import importlib
+import types
+from contextlib import nullcontext
 import json
 import multiprocessing
 import os
@@ -113,7 +116,7 @@ class ReconcileTests(unittest.TestCase):
         self.replace.assert_not_called()
 
     def test_disabled_commit_during_slow_start_is_rechecked(self):
-        def slow():
+        def slow(bind):
             self.enabled = False
             return object()
         self.factory.side_effect = slow
@@ -122,7 +125,7 @@ class ReconcileTests(unittest.TestCase):
         self.assertNotEqual(self.status()["phase"], "running")
 
     def test_manual_stop_during_slow_start_is_rechecked(self):
-        def slow():
+        def slow(bind):
             lifecycle.request(self.state, "stop")
             return object()
         self.factory.side_effect = slow
@@ -167,6 +170,41 @@ class ReconcileTests(unittest.TestCase):
         self.bind = ("127.0.0.1", 9292); self.tick()
         self.assertFalse(old.alive())
         self.assertEqual(self.status()["port"], 9292)
+
+    def test_bind_aba_during_start_uses_selected_address(self):
+        selected = self.bind
+        entered = threading.Event()
+        bind_now = threading.Event()
+        bound_now = threading.Event()
+        resume = threading.Event()
+        bound = []
+        during_bind = []
+        def construct(bind):
+            entered.set()
+            self.assertTrue(bind_now.wait(3))
+            during_bind.append(self.bind)
+            bound.append(bind)
+            bound_now.set()
+            self.assertTrue(resume.wait(3))
+            return object()
+        self.factory.side_effect = construct
+        worker = threading.Thread(target=self.tick)
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(3))
+            self.bind = ("127.0.0.1", 9292)
+            bind_now.set()
+            self.assertTrue(bound_now.wait(3))
+            self.bind = selected
+        finally:
+            bind_now.set()
+            resume.set()
+            worker.join(3)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(during_bind, [("127.0.0.1", 9292)])
+        self.assertEqual(bound, [selected])
+        self.assertEqual((self.status()["host"], self.status()["port"]), selected)
+        self.assertEqual(self.status()["phase"], "running")
 
     def test_source_change_requires_owner_exec_with_no_listener(self):
         self.tick(); old = self.controller.web
@@ -215,6 +253,46 @@ class ReconcileTests(unittest.TestCase):
         with self.assertLogs("arr_stack_connector.reconcile", level="ERROR"):
             self.tick()
         self.assertFalse(old.alive())
+
+
+class ServerStartupTests(unittest.TestCase):
+    def test_explicit_bind_still_generates_blank_api_key(self):
+        # Isolate Django/Dispatcharr dependencies while exercising the real
+        # config.get_settings and its blank-key persistence path.
+        cfg = Mock(pk=1, settings={"api_key": "", "listen_host": "127.0.0.2", "listen_port": 9999})
+        model = Mock()
+        model.objects.get.return_value = cfg
+        model.objects.select_for_update.return_value.get.return_value = cfg
+        db = types.ModuleType("django.db")
+        db.close_old_connections = Mock()
+        db.transaction = types.SimpleNamespace(atomic=nullcontext)
+        django = types.ModuleType("django")
+        django.db = db
+        models = types.ModuleType("apps.plugins.models")
+        models.PluginConfig = model
+        newznab = types.ModuleType("servarr_bridge.newznab")
+        for name in ("caps_xml", "grab_nzb", "rss_xml", "search_movies", "search_tv"):
+            setattr(newznab, name, Mock())
+        recent = types.ModuleType("servarr_bridge.recent")
+        recent.recent_movie_results = Mock()
+        recent.recent_tv_results = Mock()
+        modules = {"django": django, "django.db": db,
+                   "apps": types.ModuleType("apps"), "apps.plugins": types.ModuleType("apps.plugins"),
+                   "apps.plugins.models": models, "servarr_bridge.newznab": newznab,
+                   "servarr_bridge.recent": recent, "servarr_bridge.sab": types.ModuleType("servarr_bridge.sab")}
+        selected = ("127.0.0.1", 9192)
+        with patch.dict(sys.modules, modules):
+            # A fresh import picks up the isolated collaborators, not a host Django.
+            sys.modules.pop("servarr_bridge.server", None)
+            try:
+                server = importlib.import_module("servarr_bridge.server")
+                with patch.object(server, "ManagedHTTPServer") as factory:
+                    server.create_server(selected)
+                    factory.assert_called_once_with(selected, server.Handler)
+            finally:
+                sys.modules.pop("servarr_bridge.server", None)
+        self.assertTrue(cfg.settings["api_key"])
+        cfg.save.assert_called_once_with(update_fields=["settings", "updated_at"])
 
 
 class OwnershipTests(unittest.TestCase):
@@ -271,6 +349,51 @@ class OwnershipTests(unittest.TestCase):
             starter.assert_called_once()
             first["alive"] = False
         registry.jobs.pop((str(self.state), str(self.state)), None)
+
+    def test_reinstall_during_missing_source_retirement_starts_successor(self):
+        registry = lifecycle._registry()
+        key = (str(self.state), str(self.state))
+        script = self.state / "service.py"
+        calls = []
+        missing_seen = threading.Event()
+        finish_check = threading.Event()
+        real_is_file = Path.is_file
+        real_native = lifecycle.native
+        def starter(fn, args):
+            calls.append((fn, args))
+            return len(calls)
+        def is_file(path):
+            if path == script:
+                missing_seen.set()
+                if not finish_check.wait(3):
+                    raise AssertionError("file check barrier timed out")
+                return False
+            return real_is_file(path)
+        def native(mod, name):
+            return starter if (mod, name) == ("_thread", "start_new_thread") else real_native(mod, name)
+        with patch.object(lifecycle, "native", side_effect=native), patch.object(Path, "is_file", is_file):
+            first = lifecycle.ensure_watchdog(self.state, self.state, sys.executable, {})
+            runner = threading.Thread(target=calls[0][0], args=calls[0][1])
+            runner.start()
+            successor = []
+            try:
+                self.assertTrue(missing_seen.wait(3))
+                script.write_text("restored")
+                initializer = threading.Thread(target=lambda: successor.append(
+                    lifecycle.ensure_watchdog(self.state, self.state, sys.executable, {})))
+                initializer.start()
+            finally:
+                finish_check.set()
+                runner.join(3)
+            initializer.join(3)
+            self.assertFalse(runner.is_alive())
+            self.assertFalse(initializer.is_alive())
+            self.assertEqual(len(successor), 1)
+            self.assertIsNot(first, successor[0])
+            self.assertTrue(successor[0]["alive"])
+            self.assertEqual(len(calls), 2)
+            successor[0]["alive"] = False
+        registry.jobs.pop(key, None)
 
     @unittest.skipUnless(hasattr(os, "fork"), "requires fork")
     def test_fork_child_resets_registry_and_drops_transient_parent_lease(self):

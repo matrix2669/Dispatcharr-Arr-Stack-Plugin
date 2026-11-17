@@ -1078,3 +1078,15 @@ Keep endpoint/settings/API-key/provider/download/state-path and LineupARR
 contracts unchanged. Development remains untagged at 0.2.0; a separately authorized
 release must choose a new version, satisfy review/CI/archive/upgrade gates, and
 perform the clean restart. No production upgrade or publication is included here.
+
+
+## 2026-11-17: Workspace standards update lifecycle
+
+The owner clarified that updated workspace standards must be reconciled into this
+plugin. This project retains a pre-work standards check rather than deferring all
+updates to promotion, even though the current standalone workspace baseline permits
+routine work under a pinned revision. On drift, review the changes against this
+project's contracts and resolve contradictions before recording the new revision.
+Promotion, release, and the project's independent approval and validation gates
+remain separate; reconciling standards does not authorize those actions.
+The clarification supersedes the earlier uncertainty over when to reconcile.

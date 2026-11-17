@@ -130,7 +130,7 @@ class Controller:
                 if self.clock() < self.retry_at:
                     self.emit("retrying", control)
                     return True
-                self.web = self.web_factory(self.server_factory())
+                self.web = self.web_factory(self.server_factory(bind))
                 self.bind = bind
                 # Slow bind/key initialization may overlap a new command or DB
                 # commit. Re-read authoritative state rather than trust our plan.

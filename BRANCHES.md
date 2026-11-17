@@ -24,7 +24,7 @@ This ledger records why every current branch exists. GitHub remains authoritativ
 - Current plugin version: `0.2.0`.
 - Current distribution: approved for normal GitHub Release `v0.2.0` and focused publication through the registry `main` channel.
 - Promotion source: the live-tested `v0.2.0-beta.1` state, with only version and release metadata changed for the stable build.
-- Current governance: the mandatory workspace standards drift and reconciliation gate is recorded at the applied workspace revision.
+- Current governance: the project-specific workspace standards update and reconciliation gate is recorded at the applied workspace revision.
 - Last verified at: `2026-08-24`.
 
 ### `dev`
@@ -33,7 +33,7 @@ This ledger records why every current branch exists. GitHub remains authoritativ
 - Base: current `main`.
 - Current plugin version: `0.2.0`.
 - Current state: synchronized to the completed stable source on `main`, including current dependency and workspace-governance documentation.
-- Current documentation scope: track the renamed Mustarrd dependency branch, the upstream support required by Arr Stack Connector, and mandatory workspace standards reconciliation.
+- Current documentation scope: track the renamed Mustarrd dependency branch, the upstream support required by Arr Stack Connector, and project-specific workspace standards reconciliation.
 - Intended target: `main` after versioned testing is complete.
 - Validation: 28 unit tests pass; all Python modules compile; `plugin.json` parses; version and identity assertions agree; the beta installed successfully on Dispatcharr; and the clean release ZIP is required to contain only the top-level `arr-stack-connector/` directory.
 - Last verified at: `2026-08-24`.
@@ -43,7 +43,11 @@ This ledger records why every current branch exists. GitHub remains authoritativ
 - Purpose: correct Arr Stack Connector startup coordination for concurrent Dispatcharr 0.34 discovery while retaining 0.33 compatibility.
 - Base: `origin/dev` at `f77ced5`; isolated local worktree, no production edits.
 - Scope: automatic committed-state reconciliation, native watchdog recovery, single-process lifetime ownership, durable manual commands, generation-safe replacement and isolated lifecycle validation. Earlier narrow/durable-transition attempts are superseded.
-- Authorization: implement/test locally; no push, integration, registry publication, release or deployment in this task.
-- Status: implemented locally, awaiting independent review; production remains pinned to 0.33.0.
-- Validation: portable and Linux-specific automated tests; isolated 0.33/0.34 all-plugin committed-state, failure-recovery and generation tests. See `docs/dispatcharr-034-startup-validation.md` for exact evidence and remaining release gates. No remote CI or deployment.
+- Authorization: owner approved next beta promotion and development manifest publication on 2026-11-17; no stable Release or live deployment.
+- Status: independent review clear; prepared for dev integration and immutable v0.2.1-beta.1. Production remains pinned to 0.33.0.
+- Validation: portable and Linux-specific automated tests; isolated 0.33/0.34 all-plugin committed-state, failure-recovery and generation tests. See `docs/dispatcharr-034-startup-validation.md` for exact evidence and remaining release gates. No source CI workflows exist; exact-commit local validation is required. No deployment.
 - Last verified: 2026-11-17.
+
+## 2026-11-17 beta promotion
+
+`dev` advances to the reviewed lifecycle repair as `0.2.1-beta.1`; `main` remains unchanged. Registry publication is restricted to `dispatcharr-plugins:dev`. Retain the fix branch; deletion is not authorized. Source has no GitHub Actions workflows. Exact-commit local validation accompanies existing 61-test Linux and copied-state 0.33/0.34 evidence.
